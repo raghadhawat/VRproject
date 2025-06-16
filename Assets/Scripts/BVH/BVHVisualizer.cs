@@ -22,8 +22,10 @@ public class BVHVisualizer : MonoBehaviour
         return;
     }
 
-List<Triangle> tris = extractor.triangles;
- bvhRoot = BVHBuilder.Build(tris);
+    List<Triangle> tris = extractor.triangles;
+    bvhRoot = BVHBuilder.Build(tris);
+
+
  }
 
 

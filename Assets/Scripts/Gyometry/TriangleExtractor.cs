@@ -28,7 +28,7 @@ public class TriangleExtractor : MonoBehaviour
             Vector3 v1 = transform.TransformPoint(vertices[indices[i + 1]]);
             Vector3 v2 = transform.TransformPoint(vertices[indices[i + 2]]);
 
-            Triangle tri = new Triangle(v0, v1, v2); // ✅ This uses your Triangle class!
+            Triangle tri = new Triangle(v0, v1, v2); 
             triangles.Add(tri);
         }
 
