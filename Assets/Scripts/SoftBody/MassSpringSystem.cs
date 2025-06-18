@@ -4,7 +4,7 @@ using System.Collections.Generic;
 [RequireComponent(typeof(MeshFilter))]
 public class MassSpringSystem : MonoBehaviour
 {
-    public float stiffness = 100f;  
+    public float stiffness = 100f;
     public float damping = 1f;
     public List<Particle> particles = new List<Particle>();
     public List<Spring> springs = new List<Spring>();
@@ -32,7 +32,6 @@ public class MassSpringSystem : MonoBehaviour
             AddSpring(edgeSet, tris[i + 2], tris[i]);
         }
 
-        Debug.Log($"Created {particles.Count} particles and {springs.Count} springs.");
     }
 
     void AddSpring(HashSet<(int, int)> edgeSet, int i, int j)
@@ -45,4 +44,32 @@ public class MassSpringSystem : MonoBehaviour
         edgeSet.Add(edge);
         springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
     }
+    public void InitializeFromPoints(List<Vector3> points, float springRestLength, float connectRadius)
+{
+    particles.Clear();
+    springs.Clear();
+
+    // Create particles
+    foreach (Vector3 p in points)
+    {
+        particles.Add(new Particle(p, 1f)); // default mass
+    }
+
+    // Create springs between nearby particles
+    int n = particles.Count;
+    for (int i = 0; i < n; i++)
+    {
+        for (int j = i + 1; j < n; j++)
+        {
+            float dist = Vector3.Distance(particles[i].position, particles[j].position);
+            if (dist <= connectRadius)
+            {
+                springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
+            }
+        }
+    }
+
+    Debug.Log($"Initialized system: {particles.Count} particles, {springs.Count} springs.");
+}
+
 }

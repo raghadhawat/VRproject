@@ -1,6 +1,9 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+[RequireComponent(typeof(MassSpringSystem))]
+[RequireComponent(typeof(VolumeSampler))]
 public class MassSpringSimulator : MonoBehaviour
 {
     public MassSpringSystem springSystem;
@@ -9,34 +12,41 @@ public class MassSpringSimulator : MonoBehaviour
     public float timeStep = 0.02f;
     public float particleMass = 1f;
 
-    private Mesh deformingMesh;
-    private Vector3[] originalVertices;
-    private Vector3[] deformedVertices;
-
     void Start()
     {
+        StartCoroutine(WaitForVolumeData());
+    }
+
+    IEnumerator WaitForVolumeData()
+    {
+        springSystem = GetComponent<MassSpringSystem>();
         if (springSystem == null)
         {
-            springSystem = GetComponent<MassSpringSystem>();
-            if (springSystem == null)
-            {
-                Debug.LogError("No MassSpringSystem found!");
-                enabled = false;
-                return;
-            }
+            Debug.LogError("No MassSpringSystem found!");
+            yield break;
         }
 
-        MeshFilter filter = GetComponent<MeshFilter>();
-        deformingMesh = filter.mesh;
+        VolumeSampler sampler = GetComponent<VolumeSampler>();
+        if (sampler == null)
+        {
+            Debug.LogError("No VolumeSampler found!");
+            yield break;
+        }
 
-        originalVertices = deformingMesh.vertices;
-        deformedVertices = new Vector3[originalVertices.Length];
+        // Wait until the insidePoints are ready
+        while (!sampler.IsReady)
+        {
+            yield return null;
+        }
+
+        // Initialize spring system from voxel interior points
+        springSystem.InitializeFromPoints(sampler.insidePoints, springRestLength: 0.2f, connectRadius: 0.3f);
+        Debug.Log("Mass-spring system initialized from voxel data.");
     }
 
     void Update()
     {
         Simulate();
-        UpdateMesh();
     }
 
     void Simulate()
@@ -54,22 +64,23 @@ public class MassSpringSimulator : MonoBehaviour
             p.velocity += force / particleMass * timeStep;
             p.position += p.velocity * timeStep;
         }
-for (int i = 0; i < Mathf.Min(3, springSystem.particles.Count); i++)
-{
-    Debug.Log($"Particle[{i}] Pos: {springSystem.particles[i].position}  Vel: {springSystem.particles[i].velocity}");
-}
-
     }
 
-    void UpdateMesh()
+    void OnDrawGizmos()
     {
-        // Map updated particle positions back to mesh vertices
-        for (int i = 0; i < springSystem.particles.Count; i++)
+        if (springSystem == null || springSystem.particles == null || springSystem.springs == null)
+            return;
+
+        Gizmos.color = Color.yellow;
+        foreach (Particle p in springSystem.particles)
         {
-            deformedVertices[i] = transform.InverseTransformPoint(springSystem.particles[i].position);
+            Gizmos.DrawSphere(p.position, 0.03f);
         }
 
-        deformingMesh.vertices = deformedVertices;
-        deformingMesh.RecalculateNormals();
+        Gizmos.color = Color.gray;
+        foreach (Spring s in springSystem.springs)
+        {
+            Gizmos.DrawLine(s.a.position, s.b.position);
+        }
     }
 }
