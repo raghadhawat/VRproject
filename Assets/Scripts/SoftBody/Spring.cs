@@ -31,5 +31,8 @@ public class Spring
 
         a.ApplyForce(force);
         b.ApplyForce(-force);
+        Debug.DrawLine(a.position, b.position, Color.yellow);
+        Debug.Log("Raghad");
+
     }
 }
