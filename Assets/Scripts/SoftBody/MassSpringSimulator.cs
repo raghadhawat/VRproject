@@ -57,24 +57,79 @@ public class MassSpringSimulator : MonoBehaviour
         binder.Bind(originalVertices, transform);
     }
 
-    void Update()
+    void FixedUpdate()
     {
         Simulate();
         UpdateMesh();
     }
 
-    void Simulate()
-    {
-        foreach (Spring s in springSystem.springs)
-            s.ApplyForce();
+   void Simulate()
+{
+    foreach (Spring s in springSystem.springs)
+        s.ApplyForce();
 
-        foreach (Particle p in springSystem.particles)
+    // Gravity
+    foreach (Particle p in springSystem.particles)
+    {
+        Vector3 force = new Vector3(0, gravity * particleMass, 0);
+        p.velocity += force / particleMass * timeStep;
+    }
+float groundY = 0f;
+float restitution = 9f;
+
+foreach (Particle p in springSystem.particles)
+{
+    // Only apply gravity if particle is above ground
+    if (p.position.y > groundY + 0.001f)
+    {
+        Vector3 gravityForce = new Vector3(0, gravity * particleMass, 0);
+        p.velocity += gravityForce / particleMass * timeStep;
+    }
+
+    // Integrate motion
+    p.position += p.velocity * timeStep;
+
+    // Ground collision response
+    if (p.position.y < groundY)
+    {
+        p.position.y = groundY;
+
+        if (p.velocity.y < 0f)
         {
-            Vector3 force = new Vector3(0, gravity * particleMass, 0);
-            p.velocity += force / particleMass * timeStep;
-            p.position += p.velocity * timeStep;
+            p.velocity.y *= -restitution;
+
+            // // Optional: if you want to fully stop motion after touch
+            // if (Mathf.Abs(p.velocity.y) < 0.1f)
+            // {
+            //     p.velocity.y = 0f;
+            // }
         }
     }
+}
+
+
+foreach (Particle p in springSystem.particles)
+{
+    // Apply gravity
+    Vector3 force = new Vector3(0, gravity * particleMass, 0);
+    p.velocity += force / particleMass * timeStep;
+
+    // Integrate
+    p.position += p.velocity * timeStep;
+
+    
+}
+
+        // 🧩 Add elastic shape-preserving force
+        springSystem.ApplyShapePreservationForces();
+
+    // Integrate motion
+    foreach (Particle p in springSystem.particles)
+    {
+        p.position += p.velocity * timeStep;
+    }
+}
+
 
     void UpdateMesh()
     {

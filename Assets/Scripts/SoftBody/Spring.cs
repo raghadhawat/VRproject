@@ -8,13 +8,14 @@ public class Spring
     public float damping;
 
     public Spring(Particle a, Particle b, float stiffness, float damping)
-    {
-        this.a = a;
-        this.b = b;
-        this.restLength = Vector3.Distance(a.position, b.position);
-        this.stiffness = stiffness;
-        this.damping = damping;
-    }
+{
+    this.a = a;
+    this.b = b;
+    this.restLength = Vector3.Distance(a.position, b.position); // <- this is good
+    this.stiffness = stiffness;
+    this.damping = damping;
+}
+
 
     public void ApplyForce()
     {
@@ -31,7 +32,7 @@ public class Spring
 
         a.ApplyForce(force);
         b.ApplyForce(-force);
-        Debug.DrawLine(a.position, b.position, Color.yellow);
+Debug.DrawLine(a.position, b.position, Color.yellow);
 
     }
 }

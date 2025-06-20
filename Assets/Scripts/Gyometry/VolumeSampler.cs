@@ -22,21 +22,34 @@ public class VolumeSampler : MonoBehaviour
         Vector3 min = bounds.min;
         Vector3 max = bounds.max;
 
+        int numX = Mathf.CeilToInt((max.x - min.x) / spacing);
+        int numY = Mathf.CeilToInt((max.y - min.y) / spacing);
+        int numZ = Mathf.CeilToInt((max.z - min.z) / spacing);
+
         int insideCount = 0;
 
-        for (float x = min.x; x <= max.x; x += spacing)
+        for (int ix = 0; ix <= numX; ix++)
         {
-            for (float y = min.y; y <= max.y; y += spacing)
+            for (int iy = 0; iy <= numY; iy++)
             {
-                for (float z = min.z; z <= max.z; z += spacing)
+                for (int iz = 0; iz <= numZ; iz++)
                 {
-                    Vector3 point = new Vector3(x, y, z);
+                    Vector3 point = new Vector3(
+                        min.x + ix * spacing,
+                        min.y + iy * spacing,
+                        min.z + iz * spacing
+                    );
+
+                    // Slight inward offset toward center to avoid precision issues
+                    Vector3 offset = (bounds.center - point).normalized * 0.001f;
+                    Vector3 testPoint = point + offset;
+
                     Vector3 rayDir = Vector3.right;
                     int hitCount = 0;
 
                     foreach (var tri in tris)
                     {
-                        if (tri.IntersectRay(point, rayDir, out float _))
+                        if (tri.IntersectRay(testPoint, rayDir, out float _))
                             hitCount++;
                     }
 
@@ -50,8 +63,8 @@ public class VolumeSampler : MonoBehaviour
             }
         }
 
-        Debug.Log($"Found {insideCount} inside points from voxel grid.");
+        Debug.Log($"✅ Found {insideCount} inside points from voxel grid.");
     }
-    public bool IsReady => insidePoints != null && insidePoints.Count > 0;
 
+    public bool IsReady => insidePoints != null && insidePoints.Count > 0;
 }
