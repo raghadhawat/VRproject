@@ -12,6 +12,37 @@ public class MassSpringSystem : MonoBehaviour
 
     private Vector3 initialCenter;
     public float shapeRestoreStrength = 50f; // tunable parameter
+    public BVHNode bvhRoot;
+    public Bounds aabb;
+    public int objectID;
+
+public void RecomputeAABB()
+{
+    if (particles == null || particles.Count == 0)
+        return;
+
+    Bounds bounds = new Bounds(particles[0].position, Vector3.zero);
+    for (int i = 1; i < particles.Count; i++)
+    {
+        bounds.Encapsulate(particles[i].position);
+    }
+
+    this.aabb = bounds;
+}
+
+public void RebuildBVH()
+{
+    // You may already have triangles from triangle extractor
+    // Otherwise you can approximate using a generated triangle list
+    TriangleExtractor extractor = GetComponent<TriangleExtractor>();
+    if (extractor == null || extractor.triangles == null || extractor.triangles.Count == 0)
+    {
+        Debug.LogWarning("BVH rebuild skipped: no triangle data found.");
+        return;
+    }
+
+    bvhRoot = BVHBuilder.Build(extractor.triangles);
+}
 
 
     void Start()
@@ -47,7 +78,7 @@ public class MassSpringSystem : MonoBehaviour
         if (edgeSet.Contains(edge)) return;
 
         edgeSet.Add(edge);
-springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
+        springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
     }
     public void InitializeFromPoints(List<Vector3> points, float springRestLength, float connectRadius)
     {
@@ -69,7 +100,7 @@ springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
                 float dist = Vector3.Distance(particles[i].position, particles[j].position);
                 if (dist <= connectRadius)
                 {
-springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
+                    springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
                 }
             }
         }
@@ -80,15 +111,15 @@ springs.Add(new Spring(particles[i], particles[j], stiffness, damping));
         initialCenter /= particles.Count;
 
         // Compute offsets from center for each particle
-       originalOffsets.Clear();
-for (int i = 0; i < particles.Count; i++)
-{
-    Vector3 offset = particles[i].position - initialCenter;
-    originalOffsets.Add(offset);
-}
+        originalOffsets.Clear();
+        for (int i = 0; i < particles.Count; i++)
+        {
+            Vector3 offset = particles[i].position - initialCenter;
+            originalOffsets.Add(offset);
+        }
 
 
-    
+
 
 
 
@@ -98,7 +129,7 @@ for (int i = 0; i < particles.Count; i++)
     public void ApplyShapePreservationForces()
     {
         if (originalOffsets == null || originalOffsets.Count != particles.Count)
-    return;
+            return;
 
         // Compute current center of mass
         Vector3 currentCenter = Vector3.zero;
@@ -117,6 +148,6 @@ for (int i = 0; i < particles.Count; i++)
             particles[i].velocity += restorativeForce * Time.deltaTime;
         }
     }
-    
+
 
 }
