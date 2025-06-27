@@ -10,23 +10,31 @@ public class MassSpringSystem : MonoBehaviour
     [Header("Gravity")]
     public Vector3 gravity = new Vector3(0, -9.81f, 0);
     [Header("Mass-Spring Parameters")]
-    public float pointMass = 0.1f;
+    public float pointMass = 1f;
     [Tooltip("Spring stiffness (Hooke's k)")]
-    public float stiffness = 200f;
+    public float stiffness = 10f;
     [Tooltip("Spring damping")]
-    public float damping = 10f;
+    public float damping = 5f;
     [Header("Ground Collision")]
     public float groundY = 0f;
-    public float groundStiffness = 500f;
+    public float groundStiffness = 200f;
     [Range(0,1)] public float groundDamping = 0.5f;
     [Range(0,1)] public float groundFriction = 0.8f;
     [Header("Integration")]
     [Tooltip("Number of substeps per frame")]
-    public int substeps = 8;
+    public int substeps = 32;
     [Tooltip("Scale simulation speed (0–1)")]
     [Range(0.01f,1f)]
     public float timeScale = 0.5f;
     [Tooltip("Max position magnitude before abort")]
+
+        [Header("Visualization Settings")]
+    public bool showInnerPoints = true;
+    public bool showSurfacePoints = false;
+    public bool showSurfaceSprings = false;
+    public bool showInnerSprings = true;
+    public bool showWeldingSprings = false;
+    public float gizmoSize = 0.01f;
     public float maxPosMag = 50f;
 
     // Internal structures
@@ -67,6 +75,16 @@ public class MassSpringSystem : MonoBehaviour
         BuildMassPoints();
         BuildSprings();
         AdjustGroundY();
+
+        
+        // 💥 Kick test: Add initial downward velocity
+        for (int i = 0; i < mps.Count; i++)
+        {
+            MassPoint massPoint = mps[i];
+            massPoint.vel = new Vector3(0, -1f, 0); // You can tweak this value
+            mps[i] = massPoint;
+        }
+
     }
 
     void Update()
@@ -109,77 +127,89 @@ public class MassSpringSystem : MonoBehaviour
         }
     }
 
-    void BuildSprings()
+void BuildSprings()
+{
+    springs = new List<Spring>();
+    var seen = new HashSet<(int,int)>();
+
+    void AddEdge(int a, int b)
     {
-        springs = new List<Spring>();
-        var seen = new HashSet<(int,int)>();
-
-        void AddEdge(int a, int b)
+        if (a == b) return;
+        var key = a < b ? (a,b) : (b,a);
+        if (seen.Add(key))
         {
-            if (a == b) return;
-            var key = a < b ? (a,b) : (b,a);
-            if (seen.Add(key))
-            {
-                float rst = Vector3.Distance(mps[a].pos, mps[b].pos);
-                springs.Add(new Spring(a,b,rst));
-            }
+            float rst = Vector3.Distance(mps[a].pos, mps[b].pos);
+            springs.Add(new Spring(a,b,rst));
         }
+    }
 
-        // surface edges
-        // surface edges
-        for (int i = 0; i < meshTris.Length; i+=3)
+    // surface edges
+    for (int i = 0; i < meshTris.Length; i += 3)
+    {
+        int vertex1 = surfMap[meshTris[i]], 
+            vertex2 = surfMap[meshTris[i+1]], 
+            vertex3 = surfMap[meshTris[i+2]];
+        AddEdge(vertex1, vertex2); 
+        AddEdge(vertex2, vertex3); 
+        AddEdge(vertex3, vertex1);
+    }
+
+    // Generate all 26 neighbor directions
+    List<Vector3Int> neighborDirections = new List<Vector3Int>();
+    for (int x = -1; x <= 1; x++)
+    for (int y = -1; y <= 1; y++)
+    for (int z = -1; z <= 1; z++)
+    {
+        if (x == 0 && y == 0 && z == 0) continue;
+        neighborDirections.Add(new Vector3Int(x, y, z));
+    }
+
+    // Connect each interior point to all 26 neighbors
+    foreach (var kv in sampler.InteriorGridIndices)
+    {
+        var k = kv.Key; 
+        int idx = intMap[k];
+        
+        foreach (var dir in neighborDirections)
         {
-            int vertex1 = surfMap[meshTris[i]], 
-                vertex2 = surfMap[meshTris[i+1]], 
-                vertex3 = surfMap[meshTris[i+2]];
-            AddEdge(vertex1, vertex2); 
-            AddEdge(vertex2, vertex3); 
-            AddEdge(vertex3, vertex1);
-        }
-
-        // interior grid + diagonals
-        int[] dx = {1,0,0}, dy={0,1,0}, dz={0,0,1};
-        foreach (var kv in sampler.InteriorGridIndices)
-        {
-            var k = kv.Key; int idx = intMap[k];
-            foreach (var del in new[]{new Vector3Int(1,0,0), new Vector3Int(0,1,0), new Vector3Int(0,0,1)})
+            var nk = k + dir;
+            if (intMap.TryGetValue(nk, out int j))
             {
-                var nk = k + del;
-                if (intMap.TryGetValue(nk, out int j))
-                    AddEdge(idx, j);
-            }
-            // diagonals (xy, yz, zx faces)
-            var diag = new[]{new Vector3Int(1,1,0), new Vector3Int(1,0,1), new Vector3Int(0,1,1)};
-            foreach (var d in diag)
-            {
-                var nk = k + d;
-                if (intMap.TryGetValue(nk, out int j))
-                    AddEdge(idx, j);
-            }
-        }
-
-        // surface-interior welds
-        Bounds b = mf.mesh.bounds;
-        Vector3 step = new Vector3(b.size.x / sampler.InteriorGridIndices.Keys.Max(k=>k.x),
-                                   b.size.y / sampler.InteriorGridIndices.Keys.Max(k=>k.y),
-                                   b.size.z / sampler.InteriorGridIndices.Keys.Max(k=>k.z));
-        foreach(var kv in surfMap)
-        {
-            var lv = localVerts[kv.Key];
-            var gi = new Vector3Int(
-                Mathf.RoundToInt((lv.x - b.min.x)/step.x),
-                Mathf.RoundToInt((lv.y - b.min.y)/step.y),
-                Mathf.RoundToInt((lv.z - b.min.z)/step.z)
-            );
-
-            foreach(var di in new[]{Vector3Int.zero, Vector3Int.one, new Vector3Int(1,1,0), new Vector3Int(1,0,1), new Vector3Int(0,1,1)})
-            {
-                var nk = gi + di;
-                if (intMap.TryGetValue(nk, out int idxI))
-                    AddEdge(kv.Value, idxI);
+                AddEdge(idx, j);
             }
         }
     }
+
+    // surface-interior welds
+    Bounds b = mf.mesh.bounds;
+    Vector3 step = new Vector3(
+        b.size.x / sampler.InteriorGridIndices.Keys.Max(k => k.x),
+        b.size.y / sampler.InteriorGridIndices.Keys.Max(k => k.y),
+        b.size.z / sampler.InteriorGridIndices.Keys.Max(k => k.z)
+    );
+    
+    foreach(var kv in surfMap)
+    {
+        var lv = localVerts[kv.Key];
+        var gi = new Vector3Int(
+            Mathf.RoundToInt((lv.x - b.min.x)/step.x),
+            Mathf.RoundToInt((lv.y - b.min.y)/step.y),
+            Mathf.RoundToInt((lv.z - b.min.z)/step.z)
+        );
+
+        // Connect to 3x3x3 neighborhood
+        for (int x = -1; x <= 1; x++)
+        for (int y = -1; y <= 1; y++)
+        for (int z = -1; z <= 1; z++)
+        {
+            var nk = gi + new Vector3Int(x, y, z);
+            if (intMap.TryGetValue(nk, out int idxI))
+            {
+                AddEdge(kv.Value, idxI);
+            }
+        }
+    }
+}
 
     void AdjustGroundY()
     {
@@ -190,60 +220,95 @@ public class MassSpringSystem : MonoBehaviour
             groundY = minY - 0.01f;
     }
 
-    bool SimStep(float dt)
+   bool SimStep(float dt)
+{
+    int n = mps.Count;
+    float maxDisplacement = 10f;
+    float maxVel = 50f;
+
+    // 1. Reset forces to gravity
+    for (int i = 0; i < n; i++)
     {
-        int n = mps.Count;
-        for (int i = 0; i < n; i++)
+        var p = mps[i];
+        p.force = gravity * p.mass;
+        mps[i] = p;
+    }
+
+    // 2. Apply spring + damping forces
+    foreach (var s in springs)
+    {
+        var A = mps[s.a]; var B = mps[s.b];
+        var delta = A.pos - B.pos;
+        float dist = delta.magnitude;
+        if (dist < 1e-6f) continue;
+
+        var dir = delta / dist;
+        float ext = dist - s.restLen;
+
+        var fSpring = -stiffness * ext * dir;
+        var fDamp = -damping * Vector3.Dot(A.vel - B.vel, dir) * dir;
+        var fTotal = fSpring + fDamp;
+
+        A.force += fTotal;
+        B.force -= fTotal;
+
+        mps[s.a] = A;
+        mps[s.b] = B;
+    }
+
+    // 3. Integrate (semi-implicit Euler) and handle collisions
+    for (int i = 0; i < n; i++)
+    {
+        var p = mps[i];
+
+        // Skip invalid data
+        if (!IsFiniteVector(p.pos) || p.pos.magnitude > maxDisplacement)
         {
-            var p = mps[i];
-            p.force = gravity * p.mass;
-            mps[i] = p;
+            Debug.LogError($"Unstable: point {i} at {p.pos} -- frozen.");
+            p.vel = Vector3.zero;
+            p.force = Vector3.zero;
+            continue;
         }
 
-        foreach (var s in springs)
+        // Semi-implicit Euler: vel first
+        var acc = p.force / p.mass;
+        p.vel += dt * acc;
+
+        // Clamp velocity
+        if (p.vel.magnitude > maxVel)
         {
-            var A = mps[s.a]; var B=mps[s.b];
-            var delta = A.pos - B.pos;
-            float d = delta.magnitude;
-            if (d < 1e-9f) continue;
-            var dir = delta / d;
-            var ext = d - s.restLen;
-            var f = -stiffness * ext * dir;
-            var dam = -damping * Vector3.Dot(A.vel - B.vel, dir) * dir;
-            var total = f + dam;
-            A.force += total; B.force -= total;
-            mps[s.a] = A; mps[s.b] = B;
+            p.vel = p.vel.normalized * maxVel;
+            Debug.LogWarning($"Velocity capped at point {i}");
         }
 
-        for(int i=0;i<n;i++)
+        p.pos += dt * p.vel;
+
+        // 4. Ground collision
+        if (p.pos.y < groundY)
         {
-            var p = mps[i];
-            var acc = p.force / p.mass;
-            p.vel += dt * acc;
-            p.pos += dt * p.vel;
+            float penetration = groundY - p.pos.y;
 
-            // divergence guard
-            if (float.IsNaN(p.pos.x) || p.pos.magnitude > maxPosMag)
-            {
-                isDeforming = false;
-                Debug.LogError("Simulation unstable! Aborting deformation.");
-                return false;
-            }
+            // Position correction only
+            p.pos.y = groundY + 0.001f;
 
-            if (p.pos.y < groundY)
-            {
-                float pen = groundY - p.pos.y;
-                pen = Mathf.Min(pen, 1f);
-                Vector3 fg = Vector3.up * groundStiffness * pen;
-                p.vel += dt * fg / p.mass;
-                p.vel.y = -p.vel.y * (1f - groundDamping);
-                p.vel.x *= groundFriction; p.vel.z *= groundFriction;
-                p.pos.y = groundY + 0.001f;
-            }
+            // Bounce
+            if (p.vel.y < 0)
+                p.vel.y *= -1f * (1f - groundDamping);
 
-            mps[i] = p;
+            // Friction
+            p.vel.x *= groundFriction;
+            p.vel.z *= groundFriction;
         }
-        return true;
+
+        mps[i] = p;
+    }
+
+    return true;
+}
+
+    bool IsFiniteVector(Vector3 v)
+    {
+        return float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
     }
 
     void UpdateMeshVerts()
@@ -253,6 +318,7 @@ public class MassSpringSystem : MonoBehaviour
         for(int i=0;i<localVerts.Length;i++)
         {
             vs[i] = transform.InverseTransformPoint(mps[surfMap[i]].pos);
+            if (!IsFiniteVector(vs[i])) vs[i] = Vector3.zero; // emergency fallback
         }
         mesh.vertices = vs;
         mesh.triangles = mf.mesh.triangles;
@@ -264,14 +330,52 @@ public class MassSpringSystem : MonoBehaviour
         mf.mesh = mesh;
     }
 
-    void OnDrawGizmos()
+ void OnDrawGizmos()
     {
         if (mps == null || springs == null) return;
-        Gizmos.color = Color.gray;
+
+        // Draw springs with appropriate colors
         foreach (var s in springs)
-            Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
-        Gizmos.color = Color.red;
-        foreach (var p in mps)
-            Gizmos.DrawSphere(p.pos, 0.01f);
+        {
+            bool aIsSurface = s.a < localVerts.Length;
+            bool bIsSurface = s.b < localVerts.Length;
+
+            if (aIsSurface && bIsSurface && showSurfaceSprings)
+            {
+                // Surface-to-surface springs (gray)
+                Gizmos.color = Color.gray;
+                Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
+            }
+            else if (!aIsSurface && !bIsSurface && showInnerSprings)
+            {
+                // Inner-to-inner springs (blue)
+                Gizmos.color = Color.blue;
+                Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
+            }
+            else if (showWeldingSprings)
+            {
+                // Surface-to-inner welding springs (orange)
+                Gizmos.color = new Color(1f, 0.5f, 0f); // Orange
+                Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
+            }
+        }
+
+        // Draw points
+        for (int i = 0; i < mps.Count; i++)
+        {
+            if (i < localVerts.Length && showSurfacePoints)
+            {
+                // Surface points (red)
+                Gizmos.color = Color.red;
+                Gizmos.DrawSphere(mps[i].pos, gizmoSize);
+            }
+            else if (showInnerPoints)
+            {
+                // Inner points (blue)
+                Gizmos.color = Color.blue;
+                Gizmos.DrawSphere(mps[i].pos, gizmoSize * 0.8f);
+            }
+        }
     }
+
 }

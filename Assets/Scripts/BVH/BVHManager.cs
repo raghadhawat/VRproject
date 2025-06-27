@@ -56,39 +56,6 @@ public class BVHManager : MonoBehaviour
         return bvhTree.Query(queryBox);
     }
 
-    void OnDrawGizmos()
-    {
-        // if (bvhTree == null || bvhTree.Root == null)
-        // {
-        //     return;
-        // }
-
-        // DrawNodeGizmos(bvhTree.Root, 0);
-
-        // Debug.Log($"OnDrawGizmos boxes number: {boxes.Count}");
-
-        // foreach (var obj in managedObjects)
-        // {
-        //     if (obj == null) continue;
-        //     foreach (var box in obj.BoundingBoxes)
-        //     {
-        //         Gizmos.color = Color.green;
-        //         Gizmos.DrawWireCube((box.Min + box.Max) / 2, box.Max - box.Min);
-        //     }
-        // }
-
-        // if (boxes == null)
-        // {
-        //     return;
-        // }
-
-        // Gizmos.color = Color.black;
-        // foreach (var b in boxes)
-        // {
-        //     Gizmos.DrawWireCube(b.Center, b.Size);
-        // }
-    }
-
     private void DrawNodeGizmos(BVHNode node, int step)
     {
         if (node == null) return;

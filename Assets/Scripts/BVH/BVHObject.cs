@@ -72,32 +72,3 @@ public class BVHObject : MonoBehaviour
         return false;
     }
 }
-
-
-// public void UpdateBoundingBoxes()
-//     {
-//         BoundingBoxes.Clear();
-
-//         // Assuming the object has a Renderer component
-//         Renderer renderer = GetComponent<Renderer>();
-//         if (renderer)
-//         {
-//             MeshFilter meshFilter = renderer.GetComponent<MeshFilter>();
-
-//             if (meshFilter)
-//             {
-//                 Mesh mesh = meshFilter.mesh;
-//                 Vector3[] vertices = mesh.vertices;
-//                 Transform transform = renderer.transform;
-
-//                 foreach (var vertex in vertices)
-//                 {
-//                     Vector3 worldVertex = transform.TransformPoint(vertex);
-//                     Vector3 min = worldVertex - Vector3.one * (boxSize / 2);
-//                     Vector3 max = worldVertex + Vector3.one * (boxSize / 2);
-//                     AABB aabb = new AABB(min, max);
-//                     BoundingBoxes.Add(aabb);
-//                 }
-//             }
-//         }
-//     }

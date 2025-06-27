@@ -361,7 +361,7 @@ Transform:
   m_GameObject: {fileID: 829595513}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.5879598, y: 4.279, z: -0.8103568}
+  m_LocalPosition: {x: -0.5879598, y: 5.26, z: -0.8103568}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -395,15 +395,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   isDeforming: 1
   gravity: {x: 0, y: -0.1, z: 0}
-  pointMass: 0.1
-  stiffness: 50
-  damping: 20
+  pointMass: 1
+  stiffness: 1000
+  damping: 500
   groundY: 0
-  groundStiffness: 1000
+  groundStiffness: 10
   groundDamping: 0.5
   groundFriction: 0.8
-  substeps: 8
+  substeps: 16
   timeScale: 0.5
+  showInnerPoints: 1
+  showSurfacePoints: 1
+  showSurfaceSprings: 1
+  showInnerSprings: 1
+  showWeldingSprings: 1
+  gizmoSize: 0.01
   maxPosMag: 50
 --- !u!114 &829595523
 MonoBehaviour:
@@ -577,17 +583,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ce6c5283b9ea2ad4bab7e720f00d6d26, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  isDeforming: 0
+  isDeforming: 1
   gravity: {x: 0, y: -0.1, z: 0}
-  pointMass: 0.1
-  stiffness: 50
-  damping: 20
+  pointMass: 0.2
+  stiffness: 30
+  damping: 5
   groundY: 0
-  groundStiffness: 1000
+  groundStiffness: 10
   groundDamping: 0.5
   groundFriction: 0.8
-  substeps: 4
+  substeps: 32
   timeScale: 0.5
+  showInnerPoints: 1
+  showSurfacePoints: 1
+  showSurfaceSprings: 1
+  showInnerSprings: 1
+  showWeldingSprings: 1
+  gizmoSize: 0.01
   maxPosMag: 50
 --- !u!65 &1491499308
 BoxCollider:
