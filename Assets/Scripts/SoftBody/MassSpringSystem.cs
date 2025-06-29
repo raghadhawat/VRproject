@@ -426,6 +426,21 @@ public class MassSpringSystem : MonoBehaviour
         }
         Debug.Log($"{gameObject.name} Octree built with {mps.Count} particles.");
     }
+   public int GetParticleCount()
+    {
+        return mps.Count;
+    }
 
-
+    public Vector3 GetParticlePosition(int index)
+    {
+        return mps[index].pos;
+    }
+public int GetParticleIndex(Vector3 pos)
+    {
+        for (int i = 0; i < mps.Count; i++)
+        {
+            if (mps[i].pos == pos) return i;
+        }
+        return -1;
+    }
 }

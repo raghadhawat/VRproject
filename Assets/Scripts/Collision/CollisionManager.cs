@@ -18,22 +18,25 @@ public class CollisionManager : MonoBehaviour
     }
 
     public struct ContactPair
-{
-public Vector3 pointA;
-public Vector3 pointB;
-public float distance;
-public Vector3 normal;
+    {
+        public MassSpringSystem systemA;
+        public MassSpringSystem systemB;
+        public int indexA;
+        public int indexB;
+        public float distance;
+        public Vector3 normal;
 
+        public ContactPair(MassSpringSystem a, int ia, MassSpringSystem b, int ib, Vector3 normal, float distance)
+        {
+            systemA = a;
+            systemB = b;
+            indexA = ia;
+            indexB = ib;
+            this.normal = normal;
+            this.distance = distance;
+        }
+    }
 
-public ContactPair(Vector3 a, Vector3 b)
-{
-    pointA = a;
-    pointB = b;
-    Vector3 delta = a - b;
-    distance = delta.magnitude;
-    normal = delta.normalized;
-}
-}
     void DetectAABBOverlaps()
     {
         contacts.Clear();
@@ -50,9 +53,9 @@ public ContactPair(Vector3 a, Vector3 b)
                     a.BuildOctree();
                     b.BuildOctree();
 
-
-                    foreach (var pa in a.GetAllParticlePositions())
+                    for (int indexA = 0; indexA < a.GetParticleCount(); indexA++)
                     {
+                        Vector3 pa = a.GetParticlePosition(indexA);
                         Bounds search = new Bounds(pa, Vector3.one * contactSearchRadius);
                         List<Vector3> neighbors = new List<Vector3>();
                         b.octreeRoot.Query(search, neighbors);
@@ -62,21 +65,22 @@ public ContactPair(Vector3 a, Vector3 b)
                             float dist = Vector3.Distance(pa, pb);
                             if (dist < contactSearchRadius)
                             {
-                                contacts.Add(new ContactPair(pa, pb));
-                                Debug.Log($"Contact! {a.name} ↔ {b.name} | d = {dist:F4}");
-                                // Optional: visualize the connection
-                                Debug.DrawLine(pa, pb, Color.green);
-
-                                // Step 1.4 (coming next): here you would save this (pa, pb) pair for collision response
+                                int indexB = b.GetParticleIndex(pb);
+                                if (indexB != -1)
+                                {
+                                    Vector3 normal = (pa - pb).normalized;
+                                    contacts.Add(new ContactPair(a, indexA, b, indexB, normal, dist));
+                                    Debug.DrawLine(pa, pb, Color.green);
+                                    Debug.Log($"Contact! {a.name} ↔ {b.name} | d = {dist:F4}");
+                                }
                             }
                         }
                     }
-                    Debug.DrawLine(a.aabb.Center, b.aabb.Center, Color.red); // Optional: visualize connection
+
+                    Debug.DrawLine(a.aabb.Center, b.aabb.Center, Color.red); // Visualize AABB center connection
                     Debug.Log($"Frame {Time.frameCount}: Total contacts = {contacts.Count}");
                 }
             }
         }
     }
-
-
 }
