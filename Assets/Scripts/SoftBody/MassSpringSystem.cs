@@ -65,26 +65,28 @@ public class MassSpringSystem : MonoBehaviour
     private Dictionary<int, int> surfMap;
     private Dictionary<Vector3Int, int> intMap;
 
-    void Start()
-    {
-        sampler = GetComponent<VolumeSampler>();
-        mf = GetComponent<MeshFilter>();
+ void Start()
+{
+    // Existing setup
+    sampler = GetComponent<VolumeSampler>();
+    mf = GetComponent<MeshFilter>();
 
-        if (sampler.InteriorLocalPoints.Count == 0)
-            sampler.SampleVolume();  // ensure data
+    if (sampler.InteriorLocalPoints.Count == 0)
+        sampler.SampleVolume();
 
-        Mesh m = mf.mesh;
-        localVerts = m.vertices;
-        meshTris = m.triangles;
+    Mesh m = mf.mesh;
+    localVerts = m.vertices;
+    meshTris = m.triangles;
 
-        BuildMassPoints();
-        BuildSprings();
-        AdjustGroundY();
+    BuildMassPoints();
+    BuildSprings();
+    AdjustGroundY();
 
+    // 👇 Throw object (set only on one object)
+    if (this.name == "Cube")
+        SetInitialVelocity(new Vector3(2f, 0f, 0f)); // upward and forward
+}
 
-       
-
-    }
 
     void Update()
     {
@@ -282,7 +284,7 @@ public class MassSpringSystem : MonoBehaviour
 
             p.pos += dt * p.vel;
 
-            
+
             mps[i] = p;
         }
         ComputeAABB();
@@ -426,7 +428,7 @@ public class MassSpringSystem : MonoBehaviour
         }
         Debug.Log($"{gameObject.name} Octree built with {mps.Count} particles.");
     }
-   public int GetParticleCount()
+    public int GetParticleCount()
     {
         return mps.Count;
     }
@@ -435,7 +437,7 @@ public class MassSpringSystem : MonoBehaviour
     {
         return mps[index].pos;
     }
-public int GetParticleIndex(Vector3 pos)
+    public int GetParticleIndex(Vector3 pos)
     {
         for (int i = 0; i < mps.Count; i++)
         {
@@ -443,4 +445,45 @@ public int GetParticleIndex(Vector3 pos)
         }
         return -1;
     }
+    public struct ParticleData
+    {
+        public Vector3 position;
+        public Vector3 velocity;
+        public float mass;
+
+
+        public ParticleData(Vector3 pos, Vector3 vel, float m)
+        {
+            position = pos;
+            velocity = vel;
+            mass = m;
+        }
+    }
+
+    public ParticleData GetParticle(int i)
+    {
+        var p = mps[i];
+        return new ParticleData(p.pos, p.vel, p.mass);
+    }
+    public void OffsetParticlePosition(int i, Vector3 offset)
+    {
+        var p = mps[i];
+        p.pos += offset;
+        mps[i] = p;
+    }
+    public void ApplyImpulse(int i, Vector3 impulse)
+    {
+        var p = mps[i];
+        p.vel += impulse / p.mass;
+        mps[i] = p;
+    }
+public void SetInitialVelocity(Vector3 velocity)
+{
+for (int i = 0; i < mps.Count; i++)
+{
+var p = mps[i];
+p.vel += velocity;
+mps[i] = p;
+}
+}
 }

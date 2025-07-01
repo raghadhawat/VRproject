@@ -11,6 +11,7 @@ public class BVHManager : MonoBehaviour
     private int c = 0;
     [SerializeField] public int count = 5;
 
+    [System.Obsolete]
     public void Initialize()
     {
         managedObjects = new List<BVHObject>(FindObjectsOfType<BVHObject>());
