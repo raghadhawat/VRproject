@@ -64,28 +64,40 @@ public class MassSpringSystem : MonoBehaviour
     private List<Spring> springs;
     private Dictionary<int, int> surfMap;
     private Dictionary<Vector3Int, int> intMap;
+    private HashSet<(int, int)> existingSpringSet;
 
- void Start()
-{
-    // Existing setup
-    sampler = GetComponent<VolumeSampler>();
-    mf = GetComponent<MeshFilter>();
+    public List<Vector3> sampledSurfacePoints; // injected from TriangleExtractor
+    private List<int> sampledSurfaceIndices = new List<int>(); // holds indices in mps of added sampled surface points
 
-    if (sampler.InteriorLocalPoints.Count == 0)
-        sampler.SampleVolume();
 
-    Mesh m = mf.mesh;
-    localVerts = m.vertices;
-    meshTris = m.triangles;
 
-    BuildMassPoints();
-    BuildSprings();
-    AdjustGroundY();
+    void Start()
+    {
+        // Existing setup
+        sampler = GetComponent<VolumeSampler>();
+        mf = GetComponent<MeshFilter>();
 
-    // 👇 Throw object (set only on one object)
-    if (this.name == "Cube")
-        SetInitialVelocity(new Vector3(2f, 0f, 0f)); // upward and forward
-}
+        if (sampler.InteriorLocalPoints.Count == 0)
+            sampler.SampleVolume();
+
+        TriangleExtractor extractor = GetComponent<TriangleExtractor>();
+        if (extractor != null)
+        {
+            sampledSurfacePoints = extractor.SampleSurfacePoints(extractor.sampleSpacing);
+        }
+        Mesh m = mf.mesh;
+        localVerts = m.vertices;
+        meshTris = m.triangles;
+
+        BuildMassPoints();
+        BuildSprings();
+        AdjustGroundY();
+
+        // 👇 Throw object (set only on one object)
+        if (this.name == "Cube")
+            SetInitialVelocity(new Vector3(0f, 0f, 0f)); // upward and forward
+
+    }
 
 
     void Update()
@@ -116,6 +128,24 @@ public class MassSpringSystem : MonoBehaviour
             surfMap[i] = mps.Count;
             mps.Add(new MassPoint(pW, pointMass));
         }
+        HashSet<Vector3Int> uniquePoints = new HashSet<Vector3Int>();
+        float snap = 0.01f;
+
+        for (int i = 0; i < sampledSurfacePoints.Count; i++)
+        {
+            var worldPos = sampledSurfacePoints[i];
+            Vector3Int key = Vector3Int.RoundToInt(worldPos / snap);
+
+            if (uniquePoints.Add(key))
+            {
+                int addedIndex = mps.Count;
+                mps.Add(new MassPoint(worldPos, pointMass));
+                sampledSurfaceIndices.Add(addedIndex); // track index
+            }
+        }
+        Debug.Log($"Sampled surface particles added: {sampledSurfaceIndices.Count}");
+
+
         // interior
         for (int i = 0; i < sampler.InteriorWorldPoints.Count; i++)
         {
@@ -127,22 +157,50 @@ public class MassSpringSystem : MonoBehaviour
             mps.Add(new MassPoint(pW, pointMass));
         }
     }
+    void ConnectSampledSurfaceSprings(float connectRadius = 0.25f)
+    {
+        if (sampledSurfacePoints == null || sampledSurfacePoints.Count == 0)
+            return;
+
+        int startIdx = localVerts.Length; // where sampled particles start
+        int endIdx = startIdx + sampledSurfacePoints.Count;
+
+        for (int i = 0; i < sampledSurfaceIndices.Count; i++)
+        {
+            for (int j = i + 1; j < sampledSurfaceIndices.Count; j++)
+            {
+                int idxA = sampledSurfaceIndices[i];
+                int idxB = sampledSurfaceIndices[j];
+                float dist = Vector3.Distance(mps[idxA].pos, mps[idxB].pos);
+                if (dist <= connectRadius)
+                {
+                    var key = idxA < idxB ? (idxA, idxB) : (idxB, idxA);
+                    if (existingSpringSet.Add(key))
+                        springs.Add(new Spring(idxA, idxB, dist));
+                }
+            }
+        }
+
+    }
+
 
     void BuildSprings()
     {
         springs = new List<Spring>();
         var seen = new HashSet<(int, int)>();
+        existingSpringSet = new HashSet<(int, int)>();
 
         void AddEdge(int a, int b)
         {
             if (a == b) return;
             var key = a < b ? (a, b) : (b, a);
-            if (seen.Add(key))
+            if (existingSpringSet.Add(key)) // 👈 Use the hash set
             {
                 float rst = Vector3.Distance(mps[a].pos, mps[b].pos);
                 springs.Add(new Spring(a, b, rst));
             }
         }
+
 
         // surface edges
         for (int i = 0; i < meshTris.Length; i += 3)
@@ -209,6 +267,65 @@ public class MassSpringSystem : MonoBehaviour
                             AddEdge(kv.Value, idxI);
                         }
                     }
+        }
+        ConnectSampledSurfaceSprings(0.3f);
+
+        ConnectSampledSurfaceToInterior();
+    }
+    void ConnectSampledSurfaceToInterior(float weldRadius = 0.3f)
+    {
+        if (sampledSurfaceIndices == null || sampledSurfaceIndices.Count == 0 || intMap == null)
+            return;
+
+        // Calculate voxel step size
+        Bounds b = mf.mesh.bounds;
+        Vector3Int maxIndices = Vector3Int.zero;
+        foreach (var key in sampler.InteriorGridIndices.Keys)
+            maxIndices = Vector3Int.Max(maxIndices, key);
+
+        Vector3 step = new Vector3(
+            b.size.x / (maxIndices.x == 0 ? 1 : maxIndices.x),
+            b.size.y / (maxIndices.y == 0 ? 1 : maxIndices.y),
+            b.size.z / (maxIndices.z == 0 ? 1 : maxIndices.z)
+        );
+
+        foreach (int surfaceIdx in sampledSurfaceIndices)
+        {
+            Vector3 worldPos = mps[surfaceIdx].pos;
+            Vector3 localPos = transform.InverseTransformPoint(worldPos);
+            Vector3Int gridIndex = new Vector3Int(
+                Mathf.RoundToInt((localPos.x - b.min.x) / step.x),
+                Mathf.RoundToInt((localPos.y - b.min.y) / step.y),
+                Mathf.RoundToInt((localPos.z - b.min.z) / step.z)
+            );
+
+            float closestDist = float.MaxValue;
+            int closestInterior = -1;
+
+            // Find closest interior point in 3×3×3 neighborhood
+            for (int x = -1; x <= 1; x++)
+                for (int y = -1; y <= 1; y++)
+                    for (int z = -1; z <= 1; z++)
+                    {
+                        Vector3Int neighbor = gridIndex + new Vector3Int(x, y, z);
+                        if (intMap.TryGetValue(neighbor, out int interiorIdx))
+                        {
+                            float dist = Vector3.Distance(mps[surfaceIdx].pos, mps[interiorIdx].pos);
+                            if (dist <= weldRadius && dist < closestDist)
+                            {
+                                closestDist = dist;
+                                closestInterior = interiorIdx;
+                            }
+                        }
+                    }
+
+            // Add only the closest spring
+            if (closestInterior != -1)
+            {
+                var key = surfaceIdx < closestInterior ? (surfaceIdx, closestInterior) : (closestInterior, surfaceIdx);
+                if (existingSpringSet.Add(key))
+                    springs.Add(new Spring(surfaceIdx, closestInterior, closestDist));
+            }
         }
     }
 
@@ -319,56 +436,73 @@ public class MassSpringSystem : MonoBehaviour
 
     void OnDrawGizmos()
     {
+
         if (mps == null || springs == null) return;
+
+        // Total number of original surface mesh vertices
+        int originalSurfaceCount = localVerts.Length;
+        int sampledSurfaceStart = originalSurfaceCount;
+        int sampledSurfaceEnd = sampledSurfaceStart + (sampledSurfacePoints?.Count ?? 0);
 
         // Draw springs with appropriate colors
         foreach (var s in springs)
         {
-            bool aIsSurface = s.a < localVerts.Length;
-            bool bIsSurface = s.b < localVerts.Length;
+            bool aIsOrigSurf = s.a < originalSurfaceCount;
+            bool bIsOrigSurf = s.b < originalSurfaceCount;
+            bool aIsSampledSurf = s.a >= sampledSurfaceStart && s.a < sampledSurfaceEnd;
+            bool bIsSampledSurf = s.b >= sampledSurfaceStart && s.b < sampledSurfaceEnd;
 
-            if (aIsSurface && bIsSurface && showSurfaceSprings)
+            if ((aIsOrigSurf || aIsSampledSurf) && (bIsOrigSurf || bIsSampledSurf) && showSurfaceSprings)
             {
-                // Surface-to-surface springs (gray)
-                Gizmos.color = Color.gray;
+                // Gray for any surface-to-surface spring
+                Gizmos.color = Color.red;
                 Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
             }
-            else if (!aIsSurface && !bIsSurface && showInnerSprings)
+            else if (!aIsOrigSurf && !aIsSampledSurf && !bIsOrigSurf && !bIsSampledSurf && showInnerSprings)
             {
-                // Inner-to-inner springs (blue)
+                // Inner-to-inner springs
                 Gizmos.color = Color.blue;
                 Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
             }
             else if (showWeldingSprings)
             {
-                // Surface-to-inner welding springs (orange)
-                Gizmos.color = new Color(1f, 0.5f, 0f); // Orange
+                // Surface-to-interior springs
+                Gizmos.color = new Color(1f, 0.5f, 0f); // orange
                 Gizmos.DrawLine(mps[s.a].pos, mps[s.b].pos);
             }
         }
 
-        // Draw points
+        // Draw particles
         for (int i = 0; i < mps.Count; i++)
         {
-            if (i < localVerts.Length && showSurfacePoints)
+            if (i < originalSurfaceCount && showSurfacePoints)
             {
-                // Surface points (red)
-                Gizmos.color = Color.red;
+                Gizmos.color = Color.red; // Original mesh surface
                 Gizmos.DrawSphere(mps[i].pos, gizmoSize);
+            }
+            else if (i >= sampledSurfaceStart && i < sampledSurfaceEnd && showSurfacePoints)
+            {
+                Gizmos.color = Color.yellow; // Sampled surface points
+                Gizmos.DrawSphere(mps[i].pos, gizmoSize * 0.9f);
             }
             else if (showInnerPoints)
             {
-                // Inner points (blue)
-                Gizmos.color = Color.blue;
+                Gizmos.color = Color.cyan; // Inner particles
                 Gizmos.DrawSphere(mps[i].pos, gizmoSize * 0.8f);
             }
         }
-        if (octreeRoot != null)
+        for (int i = 0; i < mps.Count; i++)
         {
-            DrawOctreeNode(octreeRoot);
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawSphere(mps[i].pos, gizmoSize);
         }
-    }
 
+
+        // if (octreeRoot != null)
+        // {
+        //     DrawOctreeNode(octreeRoot);
+        // }
+    }
     void DrawOctreeNode(OctreeNode node)
     {
         Gizmos.color = new Color(1f, 0.8f, 0.1f, 0.2f); // light yellow
@@ -381,7 +515,6 @@ public class MassSpringSystem : MonoBehaviour
                 DrawOctreeNode(child);
         }
     }
-
     public void ComputeAABB()
     {
         if (mps == null || mps.Count == 0)
@@ -426,7 +559,7 @@ public class MassSpringSystem : MonoBehaviour
         {
             octreeRoot.Insert(p.pos);
         }
-        Debug.Log($"{gameObject.name} Octree built with {mps.Count} particles.");
+        //  Debug.Log($"{gameObject.name} Octree built with {mps.Count} particles.");
     }
     public int GetParticleCount()
     {
@@ -477,13 +610,13 @@ public class MassSpringSystem : MonoBehaviour
         p.vel += impulse / p.mass;
         mps[i] = p;
     }
-public void SetInitialVelocity(Vector3 velocity)
-{
-for (int i = 0; i < mps.Count; i++)
-{
-var p = mps[i];
-p.vel += velocity;
-mps[i] = p;
-}
-}
+    public void SetInitialVelocity(Vector3 velocity)
+    {
+        for (int i = 0; i < mps.Count; i++)
+        {
+            var p = mps[i];
+            p.vel += velocity;
+            mps[i] = p;
+        }
+    }
 }

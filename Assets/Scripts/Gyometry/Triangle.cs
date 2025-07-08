@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Triangle
@@ -39,6 +40,33 @@ public class Triangle
         if (v < 0.0f || u + v > 1.0f) return false;
 
         distance = f * Vector3.Dot(edge2, q);
-        return distance > 0.0001f;
+        return distance > 0.0001f; }
+    public List<Vector3> SamplePointsUniform(float spacing)
+{
+    List<Vector3> samples = new List<Vector3>();
+
+    Vector3 edge1 = v1 - v0;
+    Vector3 edge2 = v2 - v0;
+
+    float area = Vector3.Cross(edge1, edge2).magnitude * 0.5f;
+    int sampleCount = Mathf.CeilToInt(Mathf.Sqrt(area / (spacing * spacing)));
+
+    for (int i = 0; i <= sampleCount; i++)
+    {
+        for (int j = 0; j <= sampleCount - i; j++)
+        {
+            float u = i / (float)sampleCount;
+            float v = j / (float)sampleCount;
+            float w = 1 - u - v;
+
+            Vector3 p = w * v0 + u * v1 + v * v2;
+            samples.Add(p);
+        }
     }
+
+    return samples;
 }
+}
+    
+
+
