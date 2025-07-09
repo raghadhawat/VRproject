@@ -20,6 +20,9 @@ public class VolumeSampler : MonoBehaviour
     [Tooltip("Mapping from integer grid coords (x,y,z) to index in InteriorLocalPoints/InteriorWorldPoints.")]
     public Dictionary<Vector3Int, int> InteriorGridIndices = new Dictionary<Vector3Int, int>();
 
+    [Tooltip("Flags indicating whether a sampled point is on the surface.")]
+    public HashSet<Vector3Int> SurfaceGridIndices = new HashSet<Vector3Int>();
+
     // Cached mesh data (local-space)
     private Vector3[] localVerts;
     private int[] meshTriangles;
@@ -31,9 +34,6 @@ public class VolumeSampler : MonoBehaviour
             SampleVolume();
     }
 
-    /// <summary>
-    /// Context-menu in Inspector: click the ⋮ on this component and choose "Sample Volume".
-    /// </summary>
     [ContextMenu("Sample Volume")]
     public void SampleVolume()
     {
@@ -52,6 +52,7 @@ public class VolumeSampler : MonoBehaviour
         InteriorLocalPoints.Clear();
         InteriorWorldPoints.Clear();
         InteriorGridIndices.Clear();
+        SurfaceGridIndices.Clear();
 
         Vector3 min = localBounds.min;
         Vector3 max = localBounds.max;
@@ -63,7 +64,6 @@ public class VolumeSampler : MonoBehaviour
             return;
         }
 
-        // Determine how many divisions along each axis, clamped by maxSamplesPerAxis
         int divX = Mathf.FloorToInt(size.x / voxelSize);
         int divY = Mathf.FloorToInt(size.y / voxelSize);
         int divZ = Mathf.FloorToInt(size.z / voxelSize);
@@ -71,16 +71,12 @@ public class VolumeSampler : MonoBehaviour
         divY = Mathf.Clamp(divY, 1, maxSamplesPerAxis);
         divZ = Mathf.Clamp(divZ, 1, maxSamplesPerAxis);
 
-        // Compute adjusted spacing so grid fits within bounds evenly
         float stepX = size.x / divX;
         float stepY = size.y / divY;
         float stepZ = size.z / divZ;
 
-        int count = 0;
-        // Loop over grid indices 0..divX-1, etc.
         for (int xi = 0; xi < divX; xi++)
         {
-            // local x-coordinate centered in the cell
             float x = min.x + (xi + 0.5f) * stepX;
             for (int yi = 0; yi < divY; yi++)
             {
@@ -89,34 +85,48 @@ public class VolumeSampler : MonoBehaviour
                 {
                     float z = min.z + (zi + 0.5f) * stepZ;
                     Vector3 localP = new Vector3(x, y, z);
+                    Vector3Int gridKey = new Vector3Int(xi, yi, zi);
 
                     if (IsPointInsideMeshLocal(localP))
                     {
+                        int index = InteriorLocalPoints.Count;
                         InteriorLocalPoints.Add(localP);
                         InteriorWorldPoints.Add(transform.TransformPoint(localP));
-                        Vector3Int key = new Vector3Int(xi, yi, zi);
-                        InteriorGridIndices[key] = InteriorLocalPoints.Count - 1;
-                        count++;
+                        InteriorGridIndices[gridKey] = index;
                     }
                 }
             }
         }
-        Debug.Log($"VolumeSampler: sampled {count} interior points (grid {divX}×{divY}×{divZ}, step ({stepX:F3},{stepY:F3},{stepZ:F3})).");
+
+        Vector3Int[] neighborOffsets = new Vector3Int[] {
+            Vector3Int.right, Vector3Int.left,
+            Vector3Int.up, Vector3Int.down,
+            Vector3Int.forward, Vector3Int.back
+        };
+
+        foreach (var kvp in InteriorGridIndices)
+        {
+            Vector3Int key = kvp.Key;
+            foreach (var offset in neighborOffsets)
+            {
+                Vector3Int neighbor = key + offset;
+                if (!InteriorGridIndices.ContainsKey(neighbor))
+                {
+                    SurfaceGridIndices.Add(key);
+                    break;
+                }
+            }
+        }
+
+        Debug.Log($"VolumeSampler: sampled {InteriorLocalPoints.Count} interior points with {SurfaceGridIndices.Count} surface.");
     }
 
-    /// <summary>
-    /// Ray-based inside test in local space. Casts ray from slightly offset origin along +X.
-    /// </summary>
     private bool IsPointInsideMeshLocal(Vector3 localP)
     {
-        // Ray direction (local space)
         Vector3 dir = Vector3.right;
-        // Offset origin slightly along dir to avoid starting exactly on surface
         const float epsilon = 1e-4f;
         Vector3 origin = localP + dir * epsilon;
-
         int hitCount = 0;
-        // Brute-force over triangles; for large meshes consider acceleration (BVH).
         for (int i = 0; i < meshTriangles.Length; i += 3)
         {
             Vector3 v0 = localVerts[meshTriangles[i]];
@@ -128,14 +138,9 @@ public class VolumeSampler : MonoBehaviour
                     hitCount++;
             }
         }
-        // Odd = inside
         return (hitCount & 1) == 1;
     }
 
-    /// <summary>
-    /// Möller–Trumbore ray-triangle intersection (local space).
-    /// Returns true if intersects, and sets t >= 0.
-    /// </summary>
     private bool IntersectRayTriangle(Vector3 origin, Vector3 dir, Vector3 v0, Vector3 v1, Vector3 v2, out float t)
     {
         t = 0f;
