@@ -26,7 +26,9 @@ public class PBDSimulator : MonoBehaviour
 
     private VolumeSampler sampler;
     private TriangleExtractor extractor;
-
+    private Mesh deformableMesh;
+    private Vector3[] originalVertices;
+    private int meshVertexStartIndex = -1;
     void Start()
     {
         sampler = GetComponent<VolumeSampler>();
@@ -44,6 +46,17 @@ public class PBDSimulator : MonoBehaviour
     {
         float dt = Time.deltaTime * timeScale;
         SimulatePBD(dt);
+
+        if (deformableMesh != null && meshVertexStartIndex >= 0)
+        {
+            Vector3[] newVerts = new Vector3[originalVertices.Length];
+            for (int i = 0; i < newVerts.Length; i++)
+            {
+                newVerts[i] = transform.InverseTransformPoint(particles[meshVertexStartIndex + i].pos);
+            }
+            deformableMesh.vertices = newVerts;
+            deformableMesh.RecalculateNormals();
+        }
     }
 
     void OnDrawGizmos()
@@ -66,32 +79,45 @@ public class PBDSimulator : MonoBehaviour
             sampler.SampleVolume();
 
         List<Vector3> surfacePoints = extractor.SampleSurfacePoints(0.1f);
-
         foreach (Vector3 p in surfacePoints)
             particles.Add(new PBDParticle(p, pointMass, true));
 
         foreach (Vector3 p in sampler.InteriorWorldPoints)
             particles.Add(new PBDParticle(p, pointMass, false));
 
+        MeshFilter meshFilter = GetComponent<MeshFilter>();
+        Mesh mesh = meshFilter != null ? meshFilter.mesh : null;
+        if (mesh == null)
+        {
+            Debug.LogError("No mesh found on this object.");
+            return;
+        }
+
+        originalVertices = mesh.vertices;
+        deformableMesh = mesh;
+        meshVertexStartIndex = particles.Count;
+
+        for (int i = 0; i < originalVertices.Length; i++)
+        {
+            Vector3 worldPos = transform.TransformPoint(originalVertices[i]);
+            particles.Add(new PBDParticle(worldPos, pointMass, true));
+        }
+
         float minY = groundY + 0.01f;
         for (int i = 0; i < particles.Count; i++)
         {
             var p = particles[i];
-
             if (p.pos.y < minY)
             {
                 p.pos.y = minY;
                 p.vel = Vector3.zero;
             }
-
-
             if (p.IsFixed && p.pos.y < minY + 0.05f)
-                p.invMass = 1f / pointMass; // Or any valid mass
-
-
+                p.invMass = 1f / pointMass;
             particles[i] = p;
         }
     }
+
 
     void BuildStretchConstraints()
     {
