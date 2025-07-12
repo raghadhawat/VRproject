@@ -38,7 +38,7 @@ public class TriangleExtractor : MonoBehaviour
 
         // Precompute surface samples
         debugPoints = SampleSurfacePoints(sampleSpacing);
-        Debug.Log($"Extracted {triangles.Count} triangles.");
+        // Debug.Log($"Extracted {triangles.Count} triangles.");
     }
 
     public List<Vector3> SampleSurfacePoints(float spacing)
@@ -50,7 +50,7 @@ public class TriangleExtractor : MonoBehaviour
             surfacePoints.AddRange(tri.SamplePointsUniform(spacing));
         }
 
-        Debug.Log($"Sampled total surface points: {surfacePoints.Count}");
+        // Debug.Log($"Sampled total surface points: {surfacePoints.Count}");
         return surfacePoints;
     }
 

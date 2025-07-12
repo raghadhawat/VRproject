@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class PBDSimulator : MonoBehaviour
+public class PBDSimulator : MonoBehaviour, ISoftBodySystem
 {
     [Range(0f, 1f)] public float stretchStiffness = 0.8f;
     [Range(0f, 1f)] public float volumeStiffness = 1f;
@@ -19,6 +19,7 @@ public class PBDSimulator : MonoBehaviour
 
     public bool visualizeParticles = true;
     public float gizmoSize = 0.015f;
+    public OctreeNode octreeRoot { get; private set; }
 
     private List<PBDParticle> particles = new List<PBDParticle>();
     private List<DistanceConstraint> stretchConstraints = new List<DistanceConstraint>();
@@ -57,6 +58,8 @@ public class PBDSimulator : MonoBehaviour
             deformableMesh.vertices = newVerts;
             deformableMesh.RecalculateNormals();
         }
+        AABB aabb = GetAABB();
+        Debug.DrawLine(aabb.Min, aabb.Max, Color.green);
     }
 
     void OnDrawGizmos()
@@ -65,7 +68,7 @@ public class PBDSimulator : MonoBehaviour
 
         foreach (var p in particles)
         {
-            Gizmos.color = p.isSurface ? Color.red : Color.yellow;
+            Gizmos.color = Color.yellow;
 
             Gizmos.DrawSphere(p.pos, gizmoSize);
         }
@@ -197,7 +200,7 @@ public class PBDSimulator : MonoBehaviour
             AddTetra(ids[0], ids[5], ids[1], ids[7]);
         }
 
-        Debug.Log("[PBD] Volume constraints added: " + volumeConstraints.Count);
+        // Debug.Log("[PBD] Volume constraints added: " + volumeConstraints.Count);
 
         void AddTetra(int i0, int i1, int i2, int i3)
         {
@@ -259,7 +262,7 @@ public class PBDSimulator : MonoBehaviour
             }
         }
 
-        Debug.Log("[PBD] Connected surface-to-interior springs: " + surfaceCount * maxConnections);
+        // Debug.Log("[PBD] Connected surface-to-interior springs: " + surfaceCount * maxConnections);
     }
     void ConnectSurfaceSprings(float connectRadius = 0.15f)
     {
@@ -321,7 +324,7 @@ public class PBDSimulator : MonoBehaviour
             }
         }
 
-        Debug.Log("[PBD] Spatially connected surface-surface springs: " + added.Count);
+        // Debug.Log("[PBD] Spatially connected surface-surface springs: " + added.Count);
     }
 
 
@@ -388,4 +391,89 @@ public class PBDSimulator : MonoBehaviour
             particles[i] = p;
         }
     }
+    public AABB GetAABB()
+    {
+        if (particles == null || particles.Count == 0)
+            return new AABB(Vector3.zero, Vector3.zero);
+
+        Vector3 min = particles[0].pos;
+        Vector3 max = particles[0].pos;
+
+        for (int i = 1; i < particles.Count; i++)
+        {
+            Vector3 p = particles[i].pos;
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+
+        return new AABB(min, max);
+    }
+    public OctreeNode BuildOctree()
+    {
+        int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
+        if (surfaceCount <= 0) return null;
+
+        // Compute bounds for the octree root
+        Vector3 min = particles[0].pos;
+        Vector3 max = particles[0].pos;
+
+        for (int i = 1; i < surfaceCount; i++)
+        {
+            Vector3 p = particles[i].pos;
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+
+        Bounds rootBounds = new Bounds((min + max) * 0.5f, max - min + Vector3.one * 0.01f);
+        OctreeNode root = new OctreeNode(rootBounds);
+
+        // Insert surface points
+        for (int i = 0; i < surfaceCount; i++)
+        {
+            root.Insert(particles[i].pos);
+        }
+
+        return root;
+    }
+
+    public void UpdateOctree()
+    {
+        octreeRoot = BuildOctree();
+    }
+
+    public int GetParticleCount()
+    {
+        return particles.Count;
+    }
+
+    public Vector3 GetParticlePosition(int index)
+    {
+        return particles[index].pos;
+    }
+
+    public new string name => gameObject.name;
+    public Vector3 GetParticleVelocity(int index)
+    {
+        return particles[index].vel;
+    }
+
+    public void SetParticleVelocity(int index, Vector3 velocity)
+    {
+        var p = particles[index];
+        p.vel = velocity;
+        particles[index] = p;
+    }
+
+    public void SetParticlePosition(int index, Vector3 position)
+    {
+        var p = particles[index];
+        p.pos = position;
+        particles[index] = p;
+    }
+
+    public float GetInverseMass(int index)
+    {
+        return particles[index].invMass;
+    }
+
 }

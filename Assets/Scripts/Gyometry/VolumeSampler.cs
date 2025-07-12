@@ -118,7 +118,7 @@ public class VolumeSampler : MonoBehaviour
             }
         }
 
-        Debug.Log($"VolumeSampler: sampled {InteriorLocalPoints.Count} interior points with {SurfaceGridIndices.Count} surface.");
+        // Debug.Log($"VolumeSampler: sampled {InteriorLocalPoints.Count} interior points with {SurfaceGridIndices.Count} surface.");
     }
 
     private bool IsPointInsideMeshLocal(Vector3 localP)
