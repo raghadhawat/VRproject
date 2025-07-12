@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class PBDSimulator : MonoBehaviour, ISoftBodySystem
+public class PBDSimulator : MonoBehaviour
 {
     [Range(0f, 1f)] public float stretchStiffness = 0.8f;
     [Range(0f, 1f)] public float volumeStiffness = 1f;
@@ -11,6 +11,8 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
     public float groundY = 0f;
     public float groundStiffness = 0.5f;
     public float groundFriction = 0.5f;
+    [Header("Collision Settings")]
+    public float contactSearchRadius = 0.2f;
 
     public float pointMass = 1f;
     public Vector3 gravity = new Vector3(0, -9.81f, 0);
@@ -30,6 +32,10 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
     private Mesh deformableMesh;
     private Vector3[] originalVertices;
     private int meshVertexStartIndex = -1;
+
+    public AABB aabb => GetAABB();
+
+
     void Start()
     {
         sampler = GetComponent<VolumeSampler>();
@@ -58,8 +64,6 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
             deformableMesh.vertices = newVerts;
             deformableMesh.RecalculateNormals();
         }
-        AABB aabb = GetAABB();
-        Debug.DrawLine(aabb.Min, aabb.Max, Color.green);
     }
 
     void OnDrawGizmos()
@@ -71,6 +75,23 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
             Gizmos.color = Color.yellow;
 
             Gizmos.DrawSphere(p.pos, gizmoSize);
+        }
+
+        if (octreeRoot != null)
+        {
+            DrawOctreeNode(octreeRoot);
+        }
+    }
+    void DrawOctreeNode(OctreeNode node)
+    {
+        Gizmos.color = new Color(1f, 0.8f, 0.1f, 0.2f); // light yellow
+        Gizmos.DrawWireCube(node.bounds.center, node.bounds.size);
+
+
+        if (node.children != null)
+        {
+            foreach (var child in node.children)
+                DrawOctreeNode(child);
         }
     }
 
@@ -413,7 +434,6 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
         int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
         if (surfaceCount <= 0) return null;
 
-        // Compute bounds for the octree root
         Vector3 min = particles[0].pos;
         Vector3 max = particles[0].pos;
 
@@ -427,14 +447,13 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
         Bounds rootBounds = new Bounds((min + max) * 0.5f, max - min + Vector3.one * 0.01f);
         OctreeNode root = new OctreeNode(rootBounds);
 
-        // Insert surface points
         for (int i = 0; i < surfaceCount; i++)
-        {
             root.Insert(particles[i].pos);
-        }
 
+        octreeRoot = root; // ✅ This line is required
         return root;
     }
+
 
     public void UpdateOctree()
     {
@@ -446,34 +465,81 @@ public class PBDSimulator : MonoBehaviour, ISoftBodySystem
         return particles.Count;
     }
 
+
+    public new string name => gameObject.name;
+
+    public List<Vector3> GetAllParticlePositions()
+    {
+        List<Vector3> positions = new List<Vector3>(particles.Count);
+        foreach (var p in particles)
+            positions.Add(p.pos);
+        return positions;
+    }
+    public struct ParticleData
+    {
+        public Vector3 position;
+        public Vector3 velocity;
+        public float mass;
+
+        public ParticleData(Vector3 pos, Vector3 vel, float m)
+        {
+            position = pos;
+            velocity = vel;
+            mass = m;
+        }
+    }
+
+    public int GetParticleIndex(Vector3 pos)
+    {
+        for (int i = 0; i < particles.Count; i++)
+        {
+            if (particles[i].pos == pos) return i;
+        }
+        return -1;
+    }
+
+    public ParticleData GetParticle(int i)
+    {
+        var p = particles[i];
+        return new ParticleData(p.pos, p.vel, p.invMass);
+    }
+
+    public void OffsetParticlePosition(int i, Vector3 offset)
+    {
+        var p = particles[i];
+        p.pos += offset;
+        particles[i] = p;
+    }
     public Vector3 GetParticlePosition(int index)
     {
         return particles[index].pos;
     }
 
-    public new string name => gameObject.name;
-    public Vector3 GetParticleVelocity(int index)
+   public void ApplyImpulse(int index, Vector3 impulse)
+{
+    var p = particles[index];
+    if (p.invMass == 0f) return; // Skip fixed particles
+
+    p.vel += impulse * p.invMass;
+    particles[index] = p;
+}
+
+    private int FindClosestParticleIndex(Vector3 point)
     {
-        return particles[index].vel;
+        float minDistSqr = float.MaxValue;
+        int bestIndex = -1;
+        for (int i = 0; i < particles.Count; i++)
+        {
+            float dSqr = (particles[i].pos - point).sqrMagnitude;
+            if (dSqr < minDistSqr)
+            {
+                minDistSqr = dSqr;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
     }
 
-    public void SetParticleVelocity(int index, Vector3 velocity)
-    {
-        var p = particles[index];
-        p.vel = velocity;
-        particles[index] = p;
-    }
 
-    public void SetParticlePosition(int index, Vector3 position)
-    {
-        var p = particles[index];
-        p.pos = position;
-        particles[index] = p;
-    }
-
-    public float GetInverseMass(int index)
-    {
-        return particles[index].invMass;
-    }
 
 }

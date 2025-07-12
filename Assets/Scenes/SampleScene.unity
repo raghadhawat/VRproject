@@ -134,6 +134,7 @@ GameObject:
   - component: {fileID: 153292511}
   - component: {fileID: 153292510}
   - component: {fileID: 153292509}
+  - component: {fileID: 153292516}
   m_Layer: 0
   m_Name: Sphere
   m_TagString: Untagged
@@ -160,7 +161,7 @@ MonoBehaviour:
   groundStiffness: 1
   groundFriction: 0.5
   pointMass: 1
-  gravity: {x: 0, y: -9.81, z: 0}
+  gravity: {x: 2, y: 0, z: 0}
   solverIterations: 15
   timeScale: 1
   visualizeParticles: 1
@@ -285,6 +286,20 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &153292516
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 153292508}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0fd120031d50ab141882d269390ca880, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  softBodies: []
+  contactSearchRadius: 0.05
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
@@ -558,6 +573,7 @@ GameObject:
   - component: {fileID: 716872132}
   - component: {fileID: 716872131}
   - component: {fileID: 716872130}
+  - component: {fileID: 716872137}
   m_Layer: 0
   m_Name: Cube
   m_TagString: Untagged
@@ -615,7 +631,7 @@ MonoBehaviour:
   groundStiffness: 1
   groundFriction: 0.5
   pointMass: 1
-  gravity: {x: 0, y: -9.81, z: 0}
+  gravity: {x: 0, y: 0, z: 0}
   solverIterations: 30
   timeScale: 1
   visualizeParticles: 1
@@ -709,6 +725,20 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &716872137
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 716872129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0fd120031d50ab141882d269390ca880, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  softBodies: []
+  contactSearchRadius: 0.05
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0

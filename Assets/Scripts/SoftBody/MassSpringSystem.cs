@@ -604,12 +604,12 @@ public class MassSpringSystem : MonoBehaviour
         p.pos += offset;
         mps[i] = p;
     }
-    public void ApplyImpulse(int i, Vector3 impulse)
-    {
-        var p = mps[i];
-        p.vel += impulse / p.mass;
-        mps[i] = p;
-    }
+        public void ApplyImpulse(int i, Vector3 impulse)
+        {
+            var p = mps[i];
+            p.vel += impulse / p.mass;
+            mps[i] = p;
+        }
     public void SetInitialVelocity(Vector3 velocity)
     {
         for (int i = 0; i < mps.Count; i++)
