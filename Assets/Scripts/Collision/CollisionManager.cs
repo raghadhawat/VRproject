@@ -18,9 +18,14 @@ public class CollisionManager : MonoBehaviour
 
     void Update()
     {
+         float dt = Time.fixedDeltaTime;
+
+    // Simulate all soft bodies
+    foreach (var sim in softBodies)
+        sim.SimulatePBD(dt);
         DetectAABBOverlaps();
-        // ResolvePenetrationContacts();
-        // ApplyVelocityImpulses(restitution);
+        ResolvePenetrationContacts(contacts);
+        ApplyVelocityImpulses(contacts, restitution);
     }
 
     public struct ContactPair
@@ -29,18 +34,22 @@ public class CollisionManager : MonoBehaviour
         public PBDSimulator systemB;
         public int indexA;
         public int indexB;
-        public float penetration;
         public Vector3 normal;
+        public float penetration;
 
         public ContactPair(PBDSimulator a, int ia, PBDSimulator b, int ib, Vector3 normal, float penetration)
         {
-            systemA = a;
-            systemB = b;
-            indexA = ia;
-            indexB = ib;
+            this.systemA = a;
+            this.indexA = ia;
+            this.systemB = b;
+            this.indexB = ib;
             this.normal = normal;
             this.penetration = penetration;
         }
+
+        public Vector3 pointA => systemA.GetParticlePosition(indexA);
+        public Vector3 pointB => systemB.GetParticlePosition(indexB);
+        public Vector3 relativeVelocity => systemA.GetVelocity(indexA) - systemB.GetVelocity(indexB);
     }
 
     void DetectAABBOverlaps()
@@ -80,18 +89,64 @@ public class CollisionManager : MonoBehaviour
                                     contacts.Add(new ContactPair(a, indexA, b, indexB, normal, penetration));
 
                                     Debug.DrawLine(pa, pb, Color.green);
-                                    Debug.Log($"Contact! {a.name} ↔ {b.name} | Penetration = {penetration:F4}");
+                                    // Debug.Log($"Contact! {a.name} ↔ {b.name} | Penetration = {penetration:F4}");
                                 }
                             }
                         }
                     }
 
                     Debug.DrawLine(a.aabb.Center, b.aabb.Center, Color.red);
-                    Debug.Log($"Frame {Time.frameCount}: Total contacts = {contacts.Count}");
+                    // Debug.Log($"Frame {Time.frameCount}: Total contacts = {contacts.Count}");
                 }
             }
         }
     }
 
-   
+    public void ResolvePenetrationContacts(List<ContactPair> contacts)
+    {
+        foreach (var contact in contacts)
+        {
+            float wA = contact.systemA.GetInvMass(contact.indexA);
+            float wB = contact.systemB.GetInvMass(contact.indexB);
+            float totalWeight = wA + wB;
+            if (totalWeight == 0f)
+                continue;
+
+            // Split the correction based on inverse masses
+            Vector3 correction = contact.normal * (contact.penetration / totalWeight);
+
+            contact.systemA.MoveParticle(contact.indexA, correction * wA);
+            contact.systemB.MoveParticle(contact.indexB, -correction * wB);
+       //     Debug.Log($"Correcting penetration between {contact.systemA.name} and {contact.systemB.name} by {contact.penetration:F4} units.");
+
+        }
+
+    }
+
+public void ApplyVelocityImpulses(List<ContactPair> contacts, float restitution)
+{
+        foreach (var contact in contacts)
+        {
+            Vector3 va = contact.systemA.GetVelocity(contact.indexA);
+            Vector3 vb = contact.systemB.GetVelocity(contact.indexB);
+            Vector3 relativeVel = va - vb;
+
+            float relNormalVel = Vector3.Dot(relativeVel, contact.normal);
+            if (relNormalVel > 0f) continue; // already separating
+
+            float invMassA = contact.systemA.GetInvMass(contact.indexA);
+            float invMassB = contact.systemB.GetInvMass(contact.indexB);
+            float totalInvMass = invMassA + invMassB;
+            if (totalInvMass == 0f) continue;
+
+            float impulseMag = -(1f + restitution) * relNormalVel / totalInvMass;
+            Vector3 impulse = impulseMag * contact.normal;
+
+            contact.systemA.ApplyImpulse(contact.indexA, impulse);
+            contact.systemB.ApplyImpulse(contact.indexB, -impulse);
+        Debug.Log($"Impulse applied between {contact.systemA.name} and {contact.systemB.name}: {impulse}");
+
+    }
+}
+
 }
