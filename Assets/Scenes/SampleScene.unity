@@ -614,7 +614,7 @@ MonoBehaviour:
   groundFriction: 0.5
   contactSearchRadius: 0.2
   pointMass: 1
-  gravity: {x: 2, y: 0, z: 0}
+  gravity: {x: 0, y: 0, z: 0}
   solverIterations: 30
   timeScale: 1
   visualizeParticles: 1

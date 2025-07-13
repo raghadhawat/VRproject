@@ -125,27 +125,38 @@ public class CollisionManager : MonoBehaviour
 
 public void ApplyVelocityImpulses(List<ContactPair> contacts, float restitution)
 {
-        foreach (var contact in contacts)
+    foreach (var contact in contacts)
+    {
+        Vector3 va = contact.systemA.GetVelocity(contact.indexA);
+        Vector3 vb = contact.systemB.GetVelocity(contact.indexB);
+        Vector3 vRel = va - vb;
+
+        float vRelNormal = Vector3.Dot(vRel, contact.normal);
+        if (vRelNormal > 0f) continue; // already separating
+
+        float invMassA = contact.systemA.GetInvMass(contact.indexA);
+        float invMassB = contact.systemB.GetInvMass(contact.indexB);
+        float totalInvMass = invMassA + invMassB;
+        if (totalInvMass == 0f) continue;
+
+        // --- Normal impulse (bounce) ---
+        float normalImpulseMag = -(1f + restitution) * vRelNormal / totalInvMass;
+        Vector3 normalImpulse = normalImpulseMag * contact.normal;
+
+        // --- Tangent/friction impulse ---
+        Vector3 vTangent = vRel - vRelNormal * contact.normal;
+        if (vTangent.sqrMagnitude > 1e-6f)
         {
-            Vector3 va = contact.systemA.GetVelocity(contact.indexA);
-            Vector3 vb = contact.systemB.GetVelocity(contact.indexB);
-            Vector3 relativeVel = va - vb;
+            vTangent.Normalize();
+            float vRelTangent = Vector3.Dot(vRel, vTangent);
+            float frictionImpulseMag = -friction * vRelTangent / totalInvMass;
+            Vector3 frictionImpulse = frictionImpulseMag * vTangent;
 
-            float relNormalVel = Vector3.Dot(relativeVel, contact.normal);
-            if (relNormalVel > 0f) continue; // already separating
+            normalImpulse += frictionImpulse; // combine impulses
+        }
 
-            float invMassA = contact.systemA.GetInvMass(contact.indexA);
-            float invMassB = contact.systemB.GetInvMass(contact.indexB);
-            float totalInvMass = invMassA + invMassB;
-            if (totalInvMass == 0f) continue;
-
-            float impulseMag = -(1f + restitution) * relNormalVel / totalInvMass;
-            Vector3 impulse = impulseMag * contact.normal;
-
-            contact.systemA.ApplyImpulse(contact.indexA, impulse);
-            contact.systemB.ApplyImpulse(contact.indexB, -impulse);
-        Debug.Log($"Impulse applied between {contact.systemA.name} and {contact.systemB.name}: {impulse}");
-
+        contact.systemA.ApplyImpulse(contact.indexA, normalImpulse);
+        contact.systemB.ApplyImpulse(contact.indexB, -normalImpulse);
     }
 }
 

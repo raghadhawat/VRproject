@@ -47,15 +47,16 @@ public class PBDSimulator : MonoBehaviour
         ConnectSurfaceToInterior();
         ConnectSurfaceSprings();
 
-         if (this.name == "Sphere")
+        if (this.name == "Sphere")
             SetInitialVelocity(new Vector3(2f, 0f, 0f)); // upward and forward
-
+        if (this.name == "Cube")
+            SetInitialVelocity(new Vector3(-3f, 0f, 0f));
     }
 
     void FixedUpdate()
     {
         float dt = Time.deltaTime * timeScale;
-       // SimulatePBD(dt);
+        // SimulatePBD(dt);
 
         if (deformableMesh != null && meshVertexStartIndex >= 0)
         {
@@ -352,7 +353,7 @@ public class PBDSimulator : MonoBehaviour
     }
 
 
-   public void SimulatePBD(float dt)
+    public void SimulatePBD(float dt)
     {
         for (int i = 0; i < particles.Count; i++)
         {
@@ -519,11 +520,11 @@ public class PBDSimulator : MonoBehaviour
     }
     public Vector3 GetVelocity(int index) => particles[index].vel;
     public void MoveParticle(int index, Vector3 delta)
-{
-    var p = particles[index];
-    p.pos += delta;
-    particles[index] = p;
-}
+    {
+        var p = particles[index];
+        p.pos += delta;
+        particles[index] = p;
+    }
     public float GetInvMass(int index)
     {
         float mass = particles[index].invMass;
@@ -536,16 +537,16 @@ public class PBDSimulator : MonoBehaviour
         p.vel += impulse * invMass;
         particles[index] = p;
     }
-public void SetInitialVelocity(Vector3 velocity)
-{
-    for (int i = 0; i < particles.Count; i++)
+    public void SetInitialVelocity(Vector3 velocity)
     {
-        var p = particles[i];
-        if (!p.IsFixed)
-            p.vel = velocity;
-        particles[i] = p;
+        for (int i = 0; i < particles.Count; i++)
+        {
+            var p = particles[i];
+            if (!p.IsFixed)
+                p.vel = velocity;
+            particles[i] = p;
+        }
     }
-}
 
 
 }
