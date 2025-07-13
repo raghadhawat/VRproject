@@ -514,32 +514,4 @@ public class PBDSimulator : MonoBehaviour
     {
         return particles[index].pos;
     }
-
-   public void ApplyImpulse(int index, Vector3 impulse)
-{
-    var p = particles[index];
-    if (p.invMass == 0f) return; // Skip fixed particles
-
-    p.vel += impulse * p.invMass;
-    particles[index] = p;
-}
-
-    private int FindClosestParticleIndex(Vector3 point)
-    {
-        float minDistSqr = float.MaxValue;
-        int bestIndex = -1;
-        for (int i = 0; i < particles.Count; i++)
-        {
-            float dSqr = (particles[i].pos - point).sqrMagnitude;
-            if (dSqr < minDistSqr)
-            {
-                minDistSqr = dSqr;
-                bestIndex = i;
-            }
-        }
-        return bestIndex;
-    }
-
-
-
 }

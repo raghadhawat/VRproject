@@ -19,8 +19,8 @@ public class CollisionManager : MonoBehaviour
     void Update()
     {
         DetectAABBOverlaps();
-        ResolvePenetrationContacts();
-        ApplyVelocityImpulses(restitution);
+        // ResolvePenetrationContacts();
+        // ApplyVelocityImpulses(restitution);
     }
 
     public struct ContactPair
@@ -93,64 +93,5 @@ public class CollisionManager : MonoBehaviour
         }
     }
 
-    void ResolvePenetrationContacts()
-    {
-        foreach (var contact in contacts)
-        {
-            var a = contact.systemA;
-            var b = contact.systemB;
-
-            var pa = a.GetParticle(contact.indexA);
-            var pb = b.GetParticle(contact.indexB);
-
-            float m1 = pa.mass;
-            float m2 = pb.mass;
-            float totalMass = m1 + m2;
-
-            Vector3 correction = contact.normal * contact.penetration;
-            Vector3 correctionA = correction * (m2 / totalMass);
-            Vector3 correctionB = correction * (m1 / totalMass);
-
-            a.OffsetParticlePosition(contact.indexA, correctionA);
-            b.OffsetParticlePosition(contact.indexB, -correctionB);
-        }
-    }
-
-    void ApplyVelocityImpulses(float restitution)
-    {
-        foreach (var contact in contacts)
-        {
-            var a = contact.systemA;
-            var b = contact.systemB;
-
-            var pa = a.GetParticle(contact.indexA);
-            var pb = b.GetParticle(contact.indexB);
-
-            Vector3 relativeVelocity = pa.velocity - pb.velocity;
-            float vRelN = Vector3.Dot(relativeVelocity, contact.normal);
-
-            if (vRelN >= 0f)
-                continue;
-
-            float m1 = pa.mass;
-            float m2 = pb.mass;
-
-            float impulseMag = -(1f + restitution) * vRelN / (1f / m1 + 1f / m2);
-            Vector3 impulse = impulseMag * contact.normal;
-
-            a.ApplyImpulse(contact.indexA, impulse);
-            b.ApplyImpulse(contact.indexB, -impulse);
-            
-
-            // Optional tangential damping/friction
-            Vector3 vRel = pa.velocity - pb.velocity;
-            Vector3 vRelT = vRel - vRelN * contact.normal;
-            if (vRelT.sqrMagnitude > 1e-6f)
-            {
-                Vector3 tangentImpulse = -friction * vRelT / (1f / m1 + 1f / m2);
-                a.ApplyImpulse(contact.indexA, tangentImpulse);
-                b.ApplyImpulse(contact.indexB, -tangentImpulse);
-            }
-        }
-    }
+   
 }
