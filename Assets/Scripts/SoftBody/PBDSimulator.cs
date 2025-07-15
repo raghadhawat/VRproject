@@ -6,10 +6,6 @@ public class PBDSimulator : MonoBehaviour
     [Range(0f, 1f)] public float stretchStiffness = 0.8f;
     [Range(0f, 1f)] public float volumeStiffness = 1f;
 
-    [Header("Ground Collision")]
-    public bool enableGround = true;
-    public float groundY = 0f;
-    public float groundStiffness = 0.5f;
     public float groundFriction = 0.5f;
     [Header("Collision Settings")]
     public float contactSearchRadius = 0.2f;
@@ -47,10 +43,10 @@ public class PBDSimulator : MonoBehaviour
         ConnectSurfaceToInterior();
         ConnectSurfaceSprings();
 
-        if (this.name == "Sphere")
-            SetInitialVelocity(new Vector3(2f, 0f, 0f)); // upward and forward
-        if (this.name == "Cube")
-            SetInitialVelocity(new Vector3(-3f, 0f, 0f));
+        // if (this.name == "Cube (1)")
+        //     SetInitialVelocity(new Vector3(2f, 0f, 0f)); // upward and forward
+        // if (this.name == "Cube")
+        //     SetInitialVelocity(new Vector3(-3f, 0f, 0f));
     }
 
     void FixedUpdate()
@@ -130,22 +126,7 @@ public class PBDSimulator : MonoBehaviour
             Vector3 worldPos = transform.TransformPoint(originalVertices[i]);
             particles.Add(new PBDParticle(worldPos, pointMass, true));
         }
-
-        float minY = groundY + 0.01f;
-        for (int i = 0; i < particles.Count; i++)
-        {
-            var p = particles[i];
-            if (p.pos.y < minY)
-            {
-                p.pos.y = minY;
-                p.vel = Vector3.zero;
-            }
-            if (p.IsFixed && p.pos.y < minY + 0.05f)
-                p.invMass = 1f / pointMass;
-            particles[i] = p;
-        }
     }
-
 
     void BuildStretchConstraints()
     {
@@ -157,28 +138,23 @@ public class PBDSimulator : MonoBehaviour
         foreach (var kv in grid)
             map[kv.Key] = baseIndex + kv.Value;
 
-        Vector3Int[] offsets = new Vector3Int[] {
+        Vector3Int[] offsets = {
             new Vector3Int(1,0,0), new Vector3Int(0,1,0), new Vector3Int(0,0,1),
             new Vector3Int(1,1,0), new Vector3Int(1,0,1), new Vector3Int(0,1,1),
-            new Vector3Int(0,-1,0), new Vector3Int(1,-1,0), new Vector3Int(-1,-1,0),new Vector3Int(1,1,1), new Vector3Int(-1,1,1), new Vector3Int(1,-1,1)
-
+            new Vector3Int(0,-1,0), new Vector3Int(1,-1,0), new Vector3Int(-1,-1,0),
+            new Vector3Int(1,1,1), new Vector3Int(-1,1,1), new Vector3Int(1,-1,1)
         };
-
-        float threshold = groundY + 0.01f;
 
         foreach (var kv in map)
         {
             Vector3Int a = kv.Key;
             int iA = kv.Value;
-            if (particles[iA].pos.y < threshold) continue;
 
             foreach (var offset in offsets)
             {
                 Vector3Int b = a + offset;
                 if (map.TryGetValue(b, out int iB))
                 {
-                    if (particles[iB].pos.y < threshold) continue;
-
                     float restLen = Vector3.Distance(particles[iA].pos, particles[iB].pos);
                     stretchConstraints.Add(new DistanceConstraint(iA, iB, restLen, stretchStiffness));
                 }
@@ -225,24 +201,14 @@ public class PBDSimulator : MonoBehaviour
             AddTetra(ids[0], ids[5], ids[1], ids[7]);
         }
 
-        // Debug.Log("[PBD] Volume constraints added: " + volumeConstraints.Count);
-
         void AddTetra(int i0, int i1, int i2, int i3)
         {
-            float threshold = groundY + 0.01f;
-            int below = 0;
-            if (particles[i0].pos.y < threshold) below++;
-            if (particles[i1].pos.y < threshold) below++;
-            if (particles[i2].pos.y < threshold) below++;
-            if (particles[i3].pos.y < threshold) below++;
-
-            if (below >= 3) return;
-
             float v = Mathf.Abs(VolumeConstraint.SignedTetrahedronVolume(
                 particles[i0].pos, particles[i1].pos, particles[i2].pos, particles[i3].pos));
             volumeConstraints.Add(new VolumeConstraint(i0, i1, i2, i3, v, volumeStiffness));
         }
     }
+
     void ConnectSurfaceToInterior(int maxConnections = 3)
     {
         int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
@@ -388,24 +354,6 @@ public class PBDSimulator : MonoBehaviour
                 particles[c.i1] = p1;
                 particles[c.i2] = p2;
                 particles[c.i3] = p3;
-            }
-        }
-
-        if (enableGround)
-        {
-            for (int i = 0; i < particles.Count; i++)
-            {
-                var p = particles[i];
-                if (p.IsFixed) continue;
-                if (p.pos.y < groundY)
-                {
-                    float penetration = groundY - p.pos.y;
-                    p.pos.y += penetration * groundStiffness;
-
-                    if (p.vel.y < 0)
-                        p.vel.y *= -groundFriction;
-                }
-                particles[i] = p;
             }
         }
 
