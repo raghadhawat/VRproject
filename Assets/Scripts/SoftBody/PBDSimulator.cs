@@ -31,6 +31,30 @@ public class PBDSimulator : MonoBehaviour
     private Vector3[] originalVertices;
     private int meshVertexStartIndex = -1;
 
+
+    static readonly Vector3Int[] kNeighborOffsets = {
+        new( 0, 0, 0), new( 1, 0, 0), new(-1, 0, 0),
+        new( 0, 1, 0), new( 0,-1, 0), new( 0, 0, 1),
+        new( 0, 0,-1), new( 1, 1, 0), new(-1,-1, 0),
+        new( 1, 0, 1), new(-1, 0,-1), new( 0, 1, 1),
+        new( 0,-1,-1), new( 1, 1, 1), new(-1,-1,-1),
+        // six more for full 27-cell neighbourhood
+        new( 1,-1, 0), new(-1, 1, 0), new( 1, 0,-1),
+        new(-1, 0, 1), new( 0, 1,-1), new( 0,-1, 1),
+        new( 1,-1,-1), new(-1, 1, 1), new( 1,-1, 1),
+        new(-1, 1,-1), new( 0, 0, 0)   // repeated centre keeps length = 27
+    };
+
+    static readonly Stack<List<int>> cellListPool = new();         // avoids new/GC
+    readonly Dictionary<long, List<int>> grid = new();   
+
+    //   [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static long PackCell(int x, int y, int z)
+        => ((long)(uint)x << 42) | ((long)(uint)y << 21) | (uint)z;
+
+    // [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static long PackCell(Vector3Int c) => PackCell(c.x, c.y, c.z);
+
     public AABB aabb => GetAABB();
 
     class ClosestComparer : IComparer<(int index, float dist)>
@@ -224,7 +248,8 @@ public class PBDSimulator : MonoBehaviour
     // 1. Split particle array into surface / interior
     int surfaceCount  = particles.Count - sampler.InteriorWorldPoints.Count;
     int interiorStart = surfaceCount;
-
+     if (interiorStart >= particles.Count)
+        return; 
     // 2. Pre-compute radius²
     float voxelSpacing = sampler.voxelSize;
     float maxRadius    = voxelSpacing * 1.5f;
@@ -259,89 +284,188 @@ public class PBDSimulator : MonoBehaviour
     // Debug.Log($"[PBD] Connected surface-to-interior springs: {surfaceCount * maxConnections}");
 }
 
-void ConnectSurfaceSprings(float connectRadius = 0.15f)
-{
-    int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
-    float cellSize   = connectRadius * 1.1f;
-    float r2         = connectRadius * connectRadius;
+    /*  void ConnectSurfaceToInterior(int maxConnections = 3)
+      {
+          int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
+          int interiorStart = surfaceCount;
 
-    // 1) Pre-allocated containers (make these fields so you only do it once)
-    var grid = new Dictionary<long, List<int>>(surfaceCount);
-    var pool = new Stack<List<int>>(surfaceCount);
+          float voxelSpacing = sampler.voxelSize;
+          float maxRadius = voxelSpacing * 1.5f;
+          float maxRadius2 = maxRadius * maxRadius;
 
-    // 2) Lambda to pack a cell coordinate into a single 64-bit key
-    long PackCell(int x, int y, int z)
-        => ((long)(uint)x << 42) | ((long)(uint)y << 21) | (uint)z;
+          for (int i = 0; i < surfaceCount; i++)
+          {
+              Vector3 surfacePos = particles[i].pos;
 
-    // 3) Helper to get the cell key for a position
-    long CellKey(Vector3 p)
+              // --- Three slots for (index, distance) sorted by distance ascending ---
+              int   bestIdx0 = -1, bestIdx1 = -1, bestIdx2 = -1;
+              float bestDist0 = float.MaxValue,
+                    bestDist1 = float.MaxValue,
+                    bestDist2 = float.MaxValue;
+
+              for (int j = interiorStart; j < particles.Count; j++)
+              {
+                  // squared-distance test
+                  float d2 = (surfacePos - particles[j].pos).sqrMagnitude;
+                  if (d2 > maxRadius2) continue;
+
+                  // only take the real distance when we know it's a contender
+                  float d = Mathf.Sqrt(d2);
+
+                  // insert into the sorted top-3 if it belongs
+                  if (d < bestDist0)
+                  {
+                      // shift slot 0 → 1, 1 → 2
+                      bestDist2 = bestDist1; bestIdx2 = bestIdx1;
+                      bestDist1 = bestDist0; bestIdx1 = bestIdx0;
+                      bestDist0 = d;         bestIdx0 = j;
+                  }
+                  else if (d < bestDist1)
+                  {
+                      // shift slot 1 → 2
+                      bestDist2 = bestDist1; bestIdx2 = bestIdx1;
+                      bestDist1 = d;         bestIdx1 = j;
+                  }
+                  else if (d < bestDist2)
+                  {
+                      bestDist2 = d;
+                      bestIdx2 = j;
+                  }
+              }
+
+              // Emit up to maxConnections = 3 constraints
+              if (bestIdx0 != -1)
+                  stretchConstraints.Add(new DistanceConstraint(i, bestIdx0, bestDist0, stretchStiffness));
+              if (bestIdx1 != -1)
+                  stretchConstraints.Add(new DistanceConstraint(i, bestIdx1, bestDist1, stretchStiffness));
+              if (bestIdx2 != -1)
+                  stretchConstraints.Add(new DistanceConstraint(i, bestIdx2, bestDist2, stretchStiffness));
+          }
+
+          // Debug.Log("[PBD] Connected surface-to-interior springs: " + surfaceCount * maxConnections);
+      }
+
+  */
+    
+    // void ConnectSurfaceSprings(float connectRadius = 0.15f)
+    //     {
+    //         int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
+    //         float cellSize = connectRadius * 1.1f; // Slightly larger than radius
+    //         var grid = new Dictionary<Vector3Int, List<int>>();
+    //         var added = new HashSet<(int, int)>();
+
+    //         // 1. Insert surface particles into spatial grid
+    //         for (int i = 0; i < surfaceCount; i++)
+    //         {
+    //             Vector3 pos = particles[i].pos;
+    //             Vector3Int cell = Vector3Int.FloorToInt(pos / cellSize);
+
+    //             if (!grid.TryGetValue(cell, out var list))
+    //             {
+    //                 list = new List<int>();
+    //                 grid[cell] = list;
+    //             }
+
+    //             list.Add(i);
+    //         }
+
+    //         // 2. For each surface particle, check nearby cells only
+    //         Vector3Int[] neighborOffsets = {
+    //         new Vector3Int(0,0,0), new Vector3Int(1,0,0), new Vector3Int(-1,0,0),
+    //         new Vector3Int(0,1,0), new Vector3Int(0,-1,0), new Vector3Int(0,0,1),
+    //         new Vector3Int(0,0,-1), new Vector3Int(1,1,0), new Vector3Int(-1,-1,0),
+    //         new Vector3Int(1,0,1), new Vector3Int(-1,0,-1), new Vector3Int(0,1,1),
+    //         new Vector3Int(0,-1,-1), new Vector3Int(1,1,1), new Vector3Int(-1,-1,-1)
+    //     };
+
+    //         for (int i = 0; i < surfaceCount; i++)
+    //         {
+    //             Vector3 posA = particles[i].pos;
+    //             Vector3Int baseCell = Vector3Int.FloorToInt(posA / cellSize);
+
+    //             foreach (var offset in neighborOffsets)
+    //             {
+    //                 Vector3Int neighborCell = baseCell + offset;
+
+    //                 if (grid.TryGetValue(neighborCell, out var candidates))
+    //                 {
+    //                     foreach (int j in candidates)
+    //                     {
+    //                         if (j <= i) continue; // avoid duplicates
+
+    //                         float dist = Vector3.Distance(posA, particles[j].pos);
+    //                         if (dist <= connectRadius)
+    //                         {
+    //                             var key = (i, j);
+    //                             if (added.Add(key)) // only if not added yet
+    //                             {
+    //                                 stretchConstraints.Add(new DistanceConstraint(i, j, dist, stretchStiffness));
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+
+    //         // Debug.Log("[PBD] Spatially connected surface-surface springs: " + added.Count);
+    //     }
+    
+
+    void ConnectSurfaceSprings(float connectRadius = 0.15f)
     {
-        var c = Vector3Int.FloorToInt(p / cellSize);
-        return PackCell(c.x, c.y, c.z);
-    }
+        // 1. constants & pre-comp 
+        int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
 
-    // 4) Clear grid & pool (if you’re reusing this method every frame)
-    foreach (var list in grid.Values) {
-        list.Clear();
-        pool.Push(list);
-    }
-    grid.Clear();
+        float cellSize = connectRadius;            // guarantee bounded bucket size
+        float r2       = connectRadius * connectRadius;
 
-    // 5) Insert each surface particle into its cell
-    for (int i = 0; i < surfaceCount; i++)
-    {
-        long key = CellKey(particles[i].pos);
-        if (!grid.TryGetValue(key, out var list))
+        
+        foreach (var list in grid.Values) { list.Clear(); cellListPool.Push(list); }
+        grid.Clear();
+
+        for (int i = 0; i < surfaceCount; i++)
         {
-            // reuse or allocate
-            list = pool.Count > 0 ? pool.Pop() : new List<int>(4);
-            grid[key] = list;
-        }
-        list.Add(i);
-    }
+            Vector3     p     = particles[i].pos;
+            Vector3Int  cell  = Vector3Int.FloorToInt(p / cellSize);
+            long        key   = PackCell(cell);
 
-    // 6) Precompute the 27 neighbor‐cell offsets (as packed longs)
-    var offsets = new long[27];
-    {
-        int idx = 0;
-        for (int dz = -1; dz <= 1; dz++)
-        for (int dy = -1; dy <= 1; dy++)
-        for (int dx = -1; dx <= 1; dx++)
-            offsets[idx++] =
-                PackCell(dx, dy, dz);
-    }
-
-    // 7) Do the neighbor search in O(1) per particle
-    for (int i = 0; i < surfaceCount; i++)
-    {
-        Vector3 posA = particles[i].pos;
-        long baseKey = CellKey(posA);
-
-        foreach (long off in offsets)
-        {
-            long key = baseKey + off;
-            if (!grid.TryGetValue(key, out var candidates))
-                continue;
-
-            foreach (int j in candidates)
+            if (!grid.TryGetValue(key, out var list))
             {
-                if (j <= i) continue;                 // avoid double‐count
-                Vector3 d = particles[j].pos - posA;
-                float d2 = d.sqrMagnitude;
-                if (d2 > r2) continue;              // outside radius
+                list = cellListPool.Count > 0 ? cellListPool.Pop() : new List<int>(4);
+                grid[key] = list;
+            }
+            list.Add(i);
+        }
 
-                float dist = Mathf.Sqrt(d2);        // only now
-                stretchConstraints.Add(
-                    new DistanceConstraint(
-                        i, j, dist, stretchStiffness
-                    )
-                );
+        for (int i = 0; i < surfaceCount; i++)
+        {
+            Vector3    posA   = particles[i].pos;
+            Vector3Int baseC  = Vector3Int.FloorToInt(posA / cellSize);
+            long       baseK  = PackCell(baseC);
+
+            foreach (Vector3Int off in kNeighborOffsets)
+            {
+                long key = baseK + PackCell(off.x, off.y, off.z);   // add packed offset
+
+                if (!grid.TryGetValue(key, out var candidates)) continue;
+
+                foreach (int j in candidates)
+                {
+                    if (j <= i) continue;                          // unordered pair once
+
+                    Vector3 d  = particles[j].pos - posA;
+                    float   d2 = d.sqrMagnitude;
+                    if (d2 > r2) continue;                         // outside radius
+
+                    float dist = Mathf.Sqrt(d2);                   // only now
+                    stretchConstraints.Add(
+                        new DistanceConstraint(i, j, dist, stretchStiffness));
+                }
             }
         }
-    }
 
-    // Debug.Log("[PBD] Connected surface-surface springs: " + stretchConstraints.Count);
-}
+        // Debug.Log($"[PBD] spatial springs: {stretchConstraints.Count}");
+    }
 
 
     public void SimulatePBD(float dt)
