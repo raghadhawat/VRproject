@@ -31,7 +31,15 @@ public class PBDSimulator : MonoBehaviour
 
     public AABB aabb => GetAABB();
 
-
+    class ClosestComparer : IComparer<(int index, float dist)>
+    {
+        public int Compare((int index, float dist) a, (int index, float dist) b)
+        {
+            int cmp = a.dist.CompareTo(b.dist);
+            if (cmp != 0) return cmp;
+            return a.index.CompareTo(b.index);
+        }
+    }
     void Start()
     {
         sampler = GetComponent<VolumeSampler>();
@@ -209,11 +217,11 @@ public class PBDSimulator : MonoBehaviour
         }
     }
 
+   
     void ConnectSurfaceToInterior(int maxConnections = 3)
     {
         int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
         int interiorStart = surfaceCount;
-        int interiorCount = sampler.InteriorWorldPoints.Count;
 
         float voxelSpacing = sampler.voxelSize;
         float maxRadius = voxelSpacing * 1.5f;
@@ -221,40 +229,41 @@ public class PBDSimulator : MonoBehaviour
         for (int i = 0; i < surfaceCount; i++)
         {
             Vector3 surfacePos = particles[i].pos;
+            float maxRadius2 = maxRadius * maxRadius;
 
-            // Find closest interior particles
-            List<(int index, float dist)> closest = new List<(int, float)>();
+            // 2) Create a set that keeps items sorted by dist,
+            //    and will auto-drop the largest when over capacity
+            var closestSet = new SortedSet<(int index, float dist)>(
+                new ClosestComparer()
+            );
 
             for (int j = interiorStart; j < particles.Count; j++)
             {
-                float dist = Vector3.Distance(surfacePos, particles[j].pos);
-                if (dist > maxRadius) continue;
+                // 3) Use squared-distance for the comparison
+                float dist2 = (surfacePos - particles[j].pos).sqrMagnitude;
+                if (dist2 > maxRadius2) 
+                    continue;
 
-                if (closest.Count < maxConnections)
-                {
-                    closest.Add((j, dist));
-                }
-                else
-                {
-                    // Replace furthest if current is closer
-                    int farIndex = 0;
-                    for (int k = 1; k < maxConnections; k++)
-                        if (closest[k].dist > closest[farIndex].dist)
-                            farIndex = k;
+                var pair = (j, Mathf.Sqrt(dist2));
+                closestSet.Add(pair);
 
-                    if (dist < closest[farIndex].dist)
-                        closest[farIndex] = (j, dist);
-                }
+                // 4) If we went over capacity, remove the furthest (the last element)
+                if (closestSet.Count > maxConnections)
+                    closestSet.Remove(closestSet.Max);
             }
 
-            foreach (var c in closest)
+            // 5) Now emit your constraints for the remaining k closest
+            foreach (var (idx, dist) in closestSet)
             {
-                stretchConstraints.Add(new DistanceConstraint(i, c.index, c.dist, stretchStiffness));
+                stretchConstraints.Add(
+                      new DistanceConstraint(i, idx, dist, stretchStiffness)
+                );
             }
         }
 
         // Debug.Log("[PBD] Connected surface-to-interior springs: " + surfaceCount * maxConnections);
     }
+  
     void ConnectSurfaceSprings(float connectRadius = 0.15f)
     {
         int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
