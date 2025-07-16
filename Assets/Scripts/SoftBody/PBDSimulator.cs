@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
+
 
 public class PBDSimulator : MonoBehaviour
 {
@@ -217,115 +219,129 @@ public class PBDSimulator : MonoBehaviour
         }
     }
 
-   
-    void ConnectSurfaceToInterior(int maxConnections = 3)
+   public void ConnectSurfaceToInterior(int maxConnections = 3)
+{
+    // 1. Split particle array into surface / interior
+    int surfaceCount  = particles.Count - sampler.InteriorWorldPoints.Count;
+    int interiorStart = surfaceCount;
+
+    // 2. Pre-compute radius²
+    float voxelSpacing = sampler.voxelSize;
+    float maxRadius    = voxelSpacing * 1.5f;
+    float r2           = maxRadius * maxRadius;
+
+    // 3. Build KD-tree over *interior* points
+    var interiorPts = new List<(Vector3 pos, int idx)>(particles.Count - interiorStart);
+    for (int j = interiorStart; j < particles.Count; j++)
+        interiorPts.Add((particles[j].pos, j));
+
+    var kd = new TinyKDTree(interiorPts);
+
+    // 4. Scratch buffer for the k nearest results
+    Span<(int idx, float dist2)> buf = stackalloc (int, float)[maxConnections];
+
+    // 5. Query nearest neighbours for every surface particle
+    for (int i = 0; i < surfaceCount; i++)
     {
-        int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
-        int interiorStart = surfaceCount;
+        Vector3 p = particles[i].pos;
 
-        float voxelSpacing = sampler.voxelSize;
-        float maxRadius = voxelSpacing * 1.5f;
+        int found = kd.RadialKNearest(p, r2, maxConnections, buf);
 
-        for (int i = 0; i < surfaceCount; i++)
+        // 6. Emit constraints
+        for (int n = 0; n < found; n++)
         {
-            Vector3 surfacePos = particles[i].pos;
-            float maxRadius2 = maxRadius * maxRadius;
+            var (j, d2) = buf[n];
+            stretchConstraints.Add(
+                new DistanceConstraint(i, j, Mathf.Sqrt(d2), stretchStiffness));
+        }
+    }
 
-            // 2) Create a set that keeps items sorted by dist,
-            //    and will auto-drop the largest when over capacity
-            var closestSet = new SortedSet<(int index, float dist)>(
-                new ClosestComparer()
-            );
+    // Debug.Log($"[PBD] Connected surface-to-interior springs: {surfaceCount * maxConnections}");
+}
 
-            for (int j = interiorStart; j < particles.Count; j++)
+void ConnectSurfaceSprings(float connectRadius = 0.15f)
+{
+    int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
+    float cellSize   = connectRadius * 1.1f;
+    float r2         = connectRadius * connectRadius;
+
+    // 1) Pre-allocated containers (make these fields so you only do it once)
+    var grid = new Dictionary<long, List<int>>(surfaceCount);
+    var pool = new Stack<List<int>>(surfaceCount);
+
+    // 2) Lambda to pack a cell coordinate into a single 64-bit key
+    long PackCell(int x, int y, int z)
+        => ((long)(uint)x << 42) | ((long)(uint)y << 21) | (uint)z;
+
+    // 3) Helper to get the cell key for a position
+    long CellKey(Vector3 p)
+    {
+        var c = Vector3Int.FloorToInt(p / cellSize);
+        return PackCell(c.x, c.y, c.z);
+    }
+
+    // 4) Clear grid & pool (if you’re reusing this method every frame)
+    foreach (var list in grid.Values) {
+        list.Clear();
+        pool.Push(list);
+    }
+    grid.Clear();
+
+    // 5) Insert each surface particle into its cell
+    for (int i = 0; i < surfaceCount; i++)
+    {
+        long key = CellKey(particles[i].pos);
+        if (!grid.TryGetValue(key, out var list))
+        {
+            // reuse or allocate
+            list = pool.Count > 0 ? pool.Pop() : new List<int>(4);
+            grid[key] = list;
+        }
+        list.Add(i);
+    }
+
+    // 6) Precompute the 27 neighbor‐cell offsets (as packed longs)
+    var offsets = new long[27];
+    {
+        int idx = 0;
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
+            offsets[idx++] =
+                PackCell(dx, dy, dz);
+    }
+
+    // 7) Do the neighbor search in O(1) per particle
+    for (int i = 0; i < surfaceCount; i++)
+    {
+        Vector3 posA = particles[i].pos;
+        long baseKey = CellKey(posA);
+
+        foreach (long off in offsets)
+        {
+            long key = baseKey + off;
+            if (!grid.TryGetValue(key, out var candidates))
+                continue;
+
+            foreach (int j in candidates)
             {
-                // 3) Use squared-distance for the comparison
-                float dist2 = (surfacePos - particles[j].pos).sqrMagnitude;
-                if (dist2 > maxRadius2) 
-                    continue;
+                if (j <= i) continue;                 // avoid double‐count
+                Vector3 d = particles[j].pos - posA;
+                float d2 = d.sqrMagnitude;
+                if (d2 > r2) continue;              // outside radius
 
-                var pair = (j, Mathf.Sqrt(dist2));
-                closestSet.Add(pair);
-
-                // 4) If we went over capacity, remove the furthest (the last element)
-                if (closestSet.Count > maxConnections)
-                    closestSet.Remove(closestSet.Max);
-            }
-
-            // 5) Now emit your constraints for the remaining k closest
-            foreach (var (idx, dist) in closestSet)
-            {
+                float dist = Mathf.Sqrt(d2);        // only now
                 stretchConstraints.Add(
-                      new DistanceConstraint(i, idx, dist, stretchStiffness)
+                    new DistanceConstraint(
+                        i, j, dist, stretchStiffness
+                    )
                 );
             }
         }
-
-        // Debug.Log("[PBD] Connected surface-to-interior springs: " + surfaceCount * maxConnections);
     }
-  
-    void ConnectSurfaceSprings(float connectRadius = 0.15f)
-    {
-        int surfaceCount = particles.Count - sampler.InteriorWorldPoints.Count;
-        float cellSize = connectRadius * 1.1f; // Slightly larger than radius
-        var grid = new Dictionary<Vector3Int, List<int>>();
-        var added = new HashSet<(int, int)>();
 
-        // 1. Insert surface particles into spatial grid
-        for (int i = 0; i < surfaceCount; i++)
-        {
-            Vector3 pos = particles[i].pos;
-            Vector3Int cell = Vector3Int.FloorToInt(pos / cellSize);
-
-            if (!grid.TryGetValue(cell, out var list))
-            {
-                list = new List<int>();
-                grid[cell] = list;
-            }
-
-            list.Add(i);
-        }
-
-        // 2. For each surface particle, check nearby cells only
-        Vector3Int[] neighborOffsets = {
-        new Vector3Int(0,0,0), new Vector3Int(1,0,0), new Vector3Int(-1,0,0),
-        new Vector3Int(0,1,0), new Vector3Int(0,-1,0), new Vector3Int(0,0,1),
-        new Vector3Int(0,0,-1), new Vector3Int(1,1,0), new Vector3Int(-1,-1,0),
-        new Vector3Int(1,0,1), new Vector3Int(-1,0,-1), new Vector3Int(0,1,1),
-        new Vector3Int(0,-1,-1), new Vector3Int(1,1,1), new Vector3Int(-1,-1,-1)
-    };
-
-        for (int i = 0; i < surfaceCount; i++)
-        {
-            Vector3 posA = particles[i].pos;
-            Vector3Int baseCell = Vector3Int.FloorToInt(posA / cellSize);
-
-            foreach (var offset in neighborOffsets)
-            {
-                Vector3Int neighborCell = baseCell + offset;
-
-                if (grid.TryGetValue(neighborCell, out var candidates))
-                {
-                    foreach (int j in candidates)
-                    {
-                        if (j <= i) continue; // avoid duplicates
-
-                        float dist = Vector3.Distance(posA, particles[j].pos);
-                        if (dist <= connectRadius)
-                        {
-                            var key = (i, j);
-                            if (added.Add(key)) // only if not added yet
-                            {
-                                stretchConstraints.Add(new DistanceConstraint(i, j, dist, stretchStiffness));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Debug.Log("[PBD] Spatially connected surface-surface springs: " + added.Count);
-    }
+    // Debug.Log("[PBD] Connected surface-surface springs: " + stretchConstraints.Count);
+}
 
 
     public void SimulatePBD(float dt)
@@ -507,3 +523,152 @@ public class PBDSimulator : MonoBehaviour
 
 
 }
+
+
+// /// </summary>
+// public sealed class TinyKDTree
+// {
+//     private struct Node
+//     {
+//         public int   index;   // original particle index
+//         public Vector3 pos;   // position in world space
+//         public int   left;    // index of left child in the nodes array (‑1 if none)
+//         public int   right;   // index of right child (‑1 if none)
+//     }
+
+//     private Node[] nodes; // flat array representing the tree
+
+//     /// <summary>
+//     /// Build from a list of (position, particleIndex) pairs.
+//     /// </summary>
+//     public TinyKDTree(List<(Vector3 pos, int index)> points)
+//     {
+//         if (points == null || points.Count == 0)
+//             throw new ArgumentException("Point list must be non‑empty");
+
+//         // copy to mutable list because we'll sort in‑place per recursion level
+//         var pts = new List<(Vector3 pos, int index)>(points);
+//         nodes = new Node[pts.Count];
+//         BuildRecursive(pts, 0, pts.Count, 0, 0);
+//     }
+
+//     // ───────────────────────────────────────────────────────────── private helpers ──
+
+//     private int BuildRecursive(List<(Vector3 pos, int index)> pts, int start, int end, int depth, int arrayIdx)
+//     {
+//         if (start >= end) return -1;
+
+//         int axis = depth % 3;
+//         int mid  = (start + end) >> 1;
+
+//         // partial sort: nth‑element would be ideal, but Unity lacks it → quick Sort slice
+//         pts.Sort(start, end - start, Comparer<(Vector3 pos,int index)>.Create(
+//             (a, b) => a.pos[axis].CompareTo(b.pos[axis])));
+
+//         // ensure capacity
+//         if (arrayIdx >= nodes.Length)
+//             Array.Resize(ref nodes, arrayIdx + 32);
+
+//         var (p, idx) = pts[mid];
+//         nodes[arrayIdx].pos   = p;
+//         nodes[arrayIdx].index = idx;
+
+//         int left  = BuildRecursive(pts, start, mid, depth + 1, arrayIdx + 1);
+//         int right = BuildRecursive(pts, mid + 1, end, depth + 1,
+//                                    left == -1 ? arrayIdx + 1 : left + SubtreeSize(left));
+
+//         nodes[arrayIdx].left  = left;
+//         nodes[arrayIdx].right = right;
+//         return arrayIdx;
+//     }
+
+//     private int SubtreeSize(int idx)
+//     {
+//         if (idx == -1) return 0;
+//         return 1 + SubtreeSize(nodes[idx].left) + SubtreeSize(nodes[idx].right);
+//     }
+
+//     // ─────────────────────────────────────────────── public query: radial k‑nearest ──
+
+//     /// <summary>
+//     /// Finds up to <paramref name="k"/> nearest neighbours within radius² of <paramref name="query"/>.
+//     /// Writes results to <paramref name="outBuf"/> (index, squared distance) sorted ascending.
+//     /// Returns the number of neighbours found (≤ k).
+//     /// </summary>
+//     public int RadialKNearest(Vector3 query, float radius2, int k,
+//                               Span<(int index, float dist2)> outBuf)
+//     {
+//         if (k <= 0 || k > outBuf.Length)
+//             throw new ArgumentException("outBuf must have length ≥ k");
+
+//         // tiny fixed‑size max‑heap stored in arrays
+//         Span<float> dHeap = stackalloc float[k];
+//         Span<int>   iHeap = stackalloc int[k];
+//         int count = 0;     // current heap size
+//         float worst = 0f;  // largest distance² currently in heap
+
+//         SearchRecursive(0, query, radius2, k, ref count, ref worst, dHeap, iHeap, 0);
+
+//        for (int c = 0; c < count; c++)
+//             outBuf[c] = (iHeap[c], dHeap[c]);
+
+//         // insertion-sort the at-most-3 items (count ≤ k ≤ 3)
+//         for (int a = 1; a < count; a++)
+//         {
+//             var key = outBuf[a];
+//             int b = a - 1;
+//            while (b >= 0 && outBuf[b].dist2 > key.dist2)
+//             {
+//                 outBuf[b + 1] = outBuf[b];
+//                 b--;
+//             }
+//             outBuf[b + 1] = key;
+//         }
+
+//         return count;
+//     }
+
+//     private void SearchRecursive(int n, Vector3 q, float r2, int k,
+//                                  ref int count, ref float worst,
+//                                  Span<float> dHeap, Span<int> iHeap,
+//                                  int depth)
+//     {
+//         if (n == -1) return;
+
+//         ref Node node = ref nodes[n];
+//         float d2 = (node.pos - q).sqrMagnitude;
+//         bool inRadius = d2 <= r2;
+
+//         // maintain max‑heap of size ≤ k with the closest distances²
+//         if (inRadius)
+//         {
+//             if (count < k) // heap not full: append
+//             {
+//                 dHeap[count] = d2;
+//                 iHeap[count] = node.index;
+//                 if (d2 > worst) worst = d2;
+//                 count++;
+//             }
+//             else if (d2 < worst) // replace current worst
+//             {
+//                 int wi = 0;
+//                 for (int h = 1; h < count; h++) if (dHeap[h] > dHeap[wi]) wi = h;
+//                 dHeap[wi] = d2;
+//                 iHeap[wi] = node.index;
+//                 worst = dHeap[0];
+//                 for (int h = 1; h < count; h++) if (dHeap[h] > worst) worst = dHeap[h];
+//             }
+//         }
+
+//         int axis = depth % 3;
+//         float diff = q[axis] - node.pos[axis];
+//         int first  = diff < 0 ? node.left : node.right;
+//         int second = diff < 0 ? node.right : node.left;
+
+//         SearchRecursive(first, q, r2, k, ref count, ref worst, dHeap, iHeap, depth + 1);
+
+//         // Check if we need to examine the other side of the split plane.
+//         if (diff * diff < r2 || count < k)
+//             SearchRecursive(second, q, r2, k, ref count, ref worst, dHeap, iHeap, depth + 1);
+//     }
+// }
